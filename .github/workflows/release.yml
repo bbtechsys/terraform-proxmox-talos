@@ -3,6 +3,8 @@ name: Auto Release
 on:
   push:
     branches: [ "main" ]
+    paths:
+      - "**.tf"
 
 permissions:
   contents: write
@@ -20,8 +22,12 @@ jobs:
         uses: PaulHatch/semantic-version@v5.4.0
         with:
           tag_prefix: "v"
-          major_pattern: "(MAJOR)"
-          minor_pattern: "(feat)"
+          major_pattern: "(major)"
+          # "Default to minor" strategy:
+          # If it matches "fix" or "hotfix", it's a PATCH.
+          # If it does NOT match those, it's a MINOR.
+          minor_pattern: "^((?!fix|hotfix).)*$"
+          patch_pattern: "(fix|hotfix)"
           version_format: "${major}.${minor}.${patch}"
       
       - name: Create Release
