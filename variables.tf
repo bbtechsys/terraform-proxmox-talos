@@ -65,6 +65,20 @@ variable "proxmox_network_bridge" {
   default = "vmbr0"
 }
 
+variable "control_plane_mac_addresses" {
+    description = "Map of control plane node names to MAC addresses for static IP assignment via DHCP"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_mac_addresses" {
+    description = "Map of worker node names to MAC addresses for static IP assignment via DHCP"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
 variable "talos_cluster_name" {
     description = "Name of the Talos cluster"
     type        = string
