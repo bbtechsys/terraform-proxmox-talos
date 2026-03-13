@@ -62,8 +62,8 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
         type  = var.proxmox_vm_type
     }
     memory {
-        dedicated = var.proxmox_control_vm_memory
-        floating  = var.proxmox_control_vm_memory
+        dedicated = var.proxmox_worker_vm_memory
+        floating  = var.proxmox_worker_vm_memory
     }
     disk {
         datastore_id = var.proxmox_image_datastore
