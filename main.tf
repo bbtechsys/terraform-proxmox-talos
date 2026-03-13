@@ -43,8 +43,9 @@ resource "proxmox_virtual_environment_vm" "talos_control_vm" {
         size         = var.proxmox_control_vm_disk_size
     }
     network_device {
-        vlan_id = var.proxmox_network_vlan_id
-        bridge  = var.proxmox_network_bridge
+        vlan_id     = var.proxmox_network_vlan_id
+        bridge      = var.proxmox_network_bridge
+        mac_address = lookup(var.control_plane_mac_addresses, each.key, null)
     }
     operating_system {
         type = "l26"
@@ -76,8 +77,9 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
         size         = var.proxmox_worker_vm_disk_size
     }
     network_device {
-        vlan_id = var.proxmox_network_vlan_id
-        bridge  = var.proxmox_network_bridge
+        vlan_id     = var.proxmox_network_vlan_id
+        bridge      = var.proxmox_network_bridge
+        mac_address = lookup(var.worker_mac_addresses, each.key, null)
     }
     dynamic "disk" {
         for_each = lookup(var.worker_extra_disks, each.key, [])
