@@ -22,6 +22,7 @@ resource "proxmox_virtual_environment_vm" "talos_control_vm" {
     for_each  = var.control_nodes
     name      = each.key
     node_name = each.value
+    pool_id = var.proxmox_control_pool_id
     agent {
         enabled = true
     }
@@ -54,6 +55,7 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
     for_each  = var.worker_nodes
     name      = each.key
     node_name = each.value
+    pool_id = var.proxmox_worker_pool_id
     agent {
         enabled = true
     }

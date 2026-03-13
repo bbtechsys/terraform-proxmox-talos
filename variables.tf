@@ -70,6 +70,18 @@ variable "talos_cluster_name" {
     type        = string
 }
 
+variable "proxmox_control_pool_id" {
+    description = "Proxmox control VM pool ID"
+    type = string
+    default = null
+}
+
+variable "proxmox_worker_pool_id" {
+    description = "Proxmox worker VM pool ID"
+    type = string
+    default = null
+}
+
 variable "talos_schematic_id" {
     # Generate your own at https://factory.talos.dev/
     # The this id has these extensions:
