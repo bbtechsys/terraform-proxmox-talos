@@ -33,9 +33,10 @@ Ordering is entirely implicit via resource references; there is one explicit `de
 
 ### Two things that constrain most changes
 
-**IP discovery depends on the QEMU guest agent and DHCP.** Node IPs are read as `proxmox_virtual_environment_vm.…[key].ipv4_addresses[7][0]` — index 7 is the position of Talos's primary NIC in the guest-agent interface list. There is no static-IP support; the intended pattern is to pin addresses in DHCP by MAC using `var.control_plane_mac_addresses` / `var.worker_mac_addresses`. Consequently:
+**IP discovery defaults to the QEMU guest agent and DHCP.** `local.control_node_ip` / `local.worker_node_ip` resolve each node to `try(var.<control|worker>_node_addresses[name], …ipv4_addresses[7][0])` — index 7 is the position of Talos's primary NIC in the guest-agent interface list. Declaring an address also sets `agent.wait_for_ip.disabled` for that VM, so a fully declared cluster needs no DHCP and its IPs are known at plan time. Everything below applies to nodes left to discovery, which is still the default:
 - The Talos schematic **must** include the `qemu-guest-agent` extension (the default `talos_schematic_id` does), or the apply hangs/fails with no IPs.
 - Anything touching networking (extra NICs, VLAN changes) can shift that `[7]` index.
+- A Talos VIP is a second address on the same NIC, so discovery can return it instead of the node's own address. Declaring node addresses is the way out.
 
 **The cluster endpoint defaults to a single point of failure.** `local.resolved_cluster_endpoint` is `coalesce(var.talos_cluster_endpoint, "https://${local.primary_control_node_ip}:6443")`, where the primary is `keys(var.control_nodes)[0]`. Left unset, both machine configurations point at that one node, exactly as before the override existed. `var.talos_cluster_endpoint` takes a VIP or load-balancer address instead.
 

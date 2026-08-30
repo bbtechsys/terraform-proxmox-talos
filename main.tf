@@ -4,9 +4,26 @@ locals {
     primary_proxmox_host = values(var.control_nodes)[0]
     proxmox_hosts        = toset(concat(values(var.control_nodes), values(var.worker_nodes)))
 
-    primary_control_node_ip = proxmox_virtual_environment_vm.talos_control_vm[keys(var.control_nodes)[0]].ipv4_addresses[7][0]
-    control_node_ips = [for vm in keys(var.control_nodes) : proxmox_virtual_environment_vm.talos_control_vm[vm].ipv4_addresses[7][0]]
-    worker_node_ips = [for vm in keys(var.worker_nodes) : proxmox_virtual_environment_vm.talos_worker_vm[vm].ipv4_addresses[7][0]]
+    # A node's address comes from var.*_node_addresses when declared, otherwise from the
+    # QEMU guest agent. Index 7 is Talos's primary NIC in the agent's interface list.
+    # Declaring addresses is what makes statically addressed (DHCP-free) nodes work, and
+    # it also keeps a Talos VIP — a second address on the same NIC — out of discovery.
+    control_node_ip = { for name in keys(var.control_nodes) :
+        name => try(
+            var.control_node_addresses[name],
+            proxmox_virtual_environment_vm.talos_control_vm[name].ipv4_addresses[7][0]
+        )
+    }
+    worker_node_ip = { for name in keys(var.worker_nodes) :
+        name => try(
+            var.worker_node_addresses[name],
+            proxmox_virtual_environment_vm.talos_worker_vm[name].ipv4_addresses[7][0]
+        )
+    }
+
+    primary_control_node_ip = local.control_node_ip[keys(var.control_nodes)[0]]
+    control_node_ips = [for name in keys(var.control_nodes) : local.control_node_ip[name]]
+    worker_node_ips = [for name in keys(var.worker_nodes) : local.worker_node_ip[name]]
     node_ips = concat(
         local.control_node_ips,
         local.worker_node_ips
@@ -74,6 +91,9 @@ resource "proxmox_virtual_environment_vm" "talos_control_vm" {
     pool_id = var.proxmox_control_pool_id
     agent {
         enabled = true
+        wait_for_ip {
+            disabled = contains(keys(var.control_node_addresses), each.key)
+        }
     }
     cpu {
         cores = var.proxmox_control_vm_cores
@@ -108,6 +128,9 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
     pool_id = var.proxmox_worker_pool_id
     agent {
         enabled = true
+        wait_for_ip {
+            disabled = contains(keys(var.worker_node_addresses), each.key)
+        }
     }
     cpu {
         cores = var.proxmox_worker_vm_cores
@@ -175,7 +198,7 @@ resource "talos_machine_configuration_apply" "talos_control_mc_apply" {
     for_each = var.control_nodes
     client_configuration        = talos_machine_secrets.talos_secrets.client_configuration
     machine_configuration_input = data.talos_machine_configuration.control_mc.machine_configuration
-    node                        = proxmox_virtual_environment_vm.talos_control_vm[each.key].ipv4_addresses[7][0]
+    node                        = local.control_node_ip[each.key]
     config_patches              = concat(
         var.control_machine_config_patches,
         lookup(var.control_machine_config_patches_by_node, each.key, [])
@@ -186,7 +209,7 @@ resource "talos_machine_configuration_apply" "talos_worker_mc_apply" {
     for_each = var.worker_nodes
     client_configuration        = talos_machine_secrets.talos_secrets.client_configuration
     machine_configuration_input = data.talos_machine_configuration.worker_mc.machine_configuration
-    node                        = proxmox_virtual_environment_vm.talos_worker_vm[each.key].ipv4_addresses[7][0]
+    node                        = local.worker_node_ip[each.key]
     config_patches              = concat(
         var.worker_machine_config_patches,
         lookup(var.worker_machine_config_patches_by_node, each.key, [])

@@ -88,6 +88,62 @@ match reality — for example a `dir` store that is backed by a filesystem share
 Proxmox's knowledge. Use `talos_image_upload_timeout` to raise the per-download 600s timeout
 on a slow link.
 
+## Static IP addresses (no DHCP)
+
+By default this module learns each node's IP from the QEMU guest agent, which assumes
+something is handing out addresses. In an environment with no DHCP at all, declare the
+addresses instead — `control_node_addresses` / `worker_node_addresses`, keyed by node name:
+
+```terraform
+  control_node_addresses = {
+    "talos-control-0" = "10.0.0.11"
+  }
+  worker_node_addresses = {
+    "talos-worker-0" = "10.0.0.21"
+  }
+```
+
+For any node listed there the module uses that address rather than the guest agent, and does
+not wait for the agent to report an IP. Node addresses then become known at plan time instead
+of after apply. Nodes you leave out keep using discovery, so mixing the two is fine.
+
+Declaring the address only tells *Terraform* where the node is — you must also configure it
+inside Talos with a config patch. On Talos **1.13 and later** that is a `LinkConfig`
+(see the note above about interface names, and `ResolverConfig` for DNS):
+
+```terraform
+  control_machine_config_patches_by_node = {
+    "talos-control-0" = [
+      yamlencode({
+        apiVersion = "v1alpha1"
+        kind       = "LinkAliasConfig"
+        name       = "net0"
+        selector   = { match = "true" }
+      }),
+      yamlencode({
+        apiVersion = "v1alpha1"
+        kind       = "LinkConfig"
+        name       = "net0"
+        up         = true
+        addresses  = [{ address = "10.0.0.11/24" }]
+        routes     = [{ gateway = "10.0.0.1" }]
+      }),
+      yamlencode({
+        apiVersion  = "v1alpha1"
+        kind        = "ResolverConfig"
+        nameservers = [{ address = "1.1.1.1" }]
+      }),
+    ]
+  }
+```
+
+Keep the two in sync: the address in `control_node_addresses` is what Terraform talks to, and
+the one in `LinkConfig` is what the node actually configures. If they disagree, the apply
+hangs trying to reach an address nothing answers on.
+
+This is also the fix for the VIP caveat below — with addresses declared, a VIP can no longer
+be mistaken for a node's own address.
+
 ## High-availability control plane endpoint (VIP)
 
 By default the cluster endpoint points at the first control node's IP, which is a
@@ -159,8 +215,10 @@ That last point interacts with this module: a VIP is a second address on the sam
 the QEMU guest agent reports it, and node IPs here come from the guest agent
 (`ipv4_addresses[7][0]`). On whichever node holds the VIP, discovery can return the VIP
 instead of the node's own address, putting it into `talos_machine_bootstrap` and the
-`talos_config` output. Check the `control_plane_ips` output after applying; if the VIP
-appears there, pin node addresses with `mac_address` + DHCP reservations.
+`talos_config` output. Declaring `control_node_addresses` (above) takes discovery out of the
+loop entirely and is the recommended pairing with a VIP. Otherwise check the
+`control_plane_ips` output after applying, and if the VIP appears there, pin node addresses
+with `mac_address` + DHCP reservations.
 
 ## Per-node configuration patches
 

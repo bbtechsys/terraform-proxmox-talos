@@ -79,6 +79,26 @@ variable "proxmox_network_bridge" {
   default = "vmbr0"
 }
 
+variable "control_node_addresses" {
+    # Set this when nodes are statically addressed rather than served by DHCP. The module
+    # then uses these addresses instead of discovering them through the QEMU guest agent,
+    # and does not wait for the agent to report an IP before continuing.
+    # You must still configure the address inside Talos itself, via a config patch — see
+    # the static addressing section of the README.
+    description = "Map of control node name to its IP address, for nodes that are not assigned an address by DHCP"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_node_addresses" {
+    # See control_node_addresses.
+    description = "Map of worker node name to its IP address, for nodes that are not assigned an address by DHCP"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
 variable "control_plane_mac_addresses" {
     description = "Map of control plane node names to MAC addresses for static IP assignment via DHCP"
     type        = map(string)
