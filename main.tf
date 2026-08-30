@@ -102,6 +102,11 @@ locals {
             if contains(keys(var.worker_nodes), name) },
     )
 
+    # Keys in the per-node patch maps that match no node. lookup() returns [] for these,
+    # so without a check the patch is silently dropped and the apply reports success.
+    control_patch_orphan_keys = setsubtract(keys(var.control_machine_config_patches_by_node), keys(var.control_nodes))
+    worker_patch_orphan_keys  = setsubtract(keys(var.worker_machine_config_patches_by_node), keys(var.worker_nodes))
+
     talos_image_hosts = local.iso_datastore_shared ? toset([local.primary_proxmox_host]) : local.proxmox_hosts
 
     # Which copy of the image each Proxmox host boots from: its own when the datastore is
@@ -261,7 +266,22 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
     }
 }
 
-resource "talos_machine_secrets" "talos_secrets" {}
+resource "talos_machine_secrets" "talos_secrets" {
+    # These checks live here rather than on the machine_configuration_apply resources
+    # because those use for_each: with an empty node map they would have no instances
+    # and the check would silently not run, and with several they would report the same
+    # map-wide problem once per node. This resource always has exactly one instance.
+    lifecycle {
+        precondition {
+            condition     = length(local.control_patch_orphan_keys) == 0
+            error_message = "control_machine_config_patches_by_node has keys matching no entry in control_nodes: ${join(", ", local.control_patch_orphan_keys)}. Patches under those keys would be silently dropped."
+        }
+        precondition {
+            condition     = length(local.worker_patch_orphan_keys) == 0
+            error_message = "worker_machine_config_patches_by_node has keys matching no entry in worker_nodes: ${join(", ", local.worker_patch_orphan_keys)}. Patches under those keys would be silently dropped."
+        }
+    }
+}
 
 data "talos_machine_configuration" "control_mc" {
     cluster_name     = var.talos_cluster_name
@@ -293,15 +313,6 @@ resource "talos_machine_configuration_apply" "talos_control_mc_apply" {
         var.control_machine_config_patches,
         lookup(var.control_machine_config_patches_by_node, each.key, [])
     )
-
-    lifecycle {
-        precondition {
-            # lookup() returns [] for a key matching no node, so a typo silently drops
-            # the patch and the apply reports success.
-            condition     = length(setsubtract(keys(var.control_machine_config_patches_by_node), keys(var.control_nodes))) == 0
-            error_message = "control_machine_config_patches_by_node has keys matching no entry in control_nodes: ${join(", ", setsubtract(keys(var.control_machine_config_patches_by_node), keys(var.control_nodes)))}. Patches under those keys would be silently dropped."
-        }
-    }
 }
 
 resource "talos_machine_configuration_apply" "talos_worker_mc_apply" {
@@ -319,15 +330,6 @@ resource "talos_machine_configuration_apply" "talos_worker_mc_apply" {
         var.worker_machine_config_patches,
         lookup(var.worker_machine_config_patches_by_node, each.key, [])
     )
-
-    lifecycle {
-        precondition {
-            # lookup() returns [] for a key matching no node, so a typo silently drops
-            # the patch and the apply reports success.
-            condition     = length(setsubtract(keys(var.worker_machine_config_patches_by_node), keys(var.worker_nodes))) == 0
-            error_message = "worker_machine_config_patches_by_node has keys matching no entry in worker_nodes: ${join(", ", setsubtract(keys(var.worker_machine_config_patches_by_node), keys(var.worker_nodes)))}. Patches under those keys would be silently dropped."
-        }
-    }
 }
 
 # You only need to bootstrap 1 control node, we pick the first one
@@ -362,6 +364,11 @@ data "talos_cluster_health" "cluster_health" {
     control_plane_nodes  = local.control_node_ips
     worker_nodes         = local.worker_node_ips
     # The control node addresses, not var.talos_cluster_endpoint: Talos documents that a
-    # VIP must not be used as a Talos API endpoint, since it depends on etcd health.
+    # VIP must not be used as a Talos API endpoint, since it depends on etcd health. The
+    # consequence is that this never probes the VIP itself — see the README.
     endpoints            = local.control_node_ips
+    skip_kubernetes_checks = var.cluster_health_skip_kubernetes_checks
+    timeouts = {
+        read = var.cluster_health_timeout
+    }
 }

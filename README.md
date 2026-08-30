@@ -96,18 +96,38 @@ on a slow link.
 
 ## Waiting for the cluster to be ready
 
-Talos hands over the kubeconfig as soon as bootstrap finishes, which is before kube-apiserver
-is serving — and with a VIP, before the endpoint address exists at all. By default the module
-therefore waits for the cluster to report healthy before `terraform apply` returns, so
-`terraform apply && kubectl apply -f ...` works without a sleep.
-
-This makes apply take as long as the cluster needs to converge, and a cluster that never
-becomes healthy fails the apply rather than emitting credentials that do not work. To return as
-soon as the configuration is fetched, as versions before 1.2 did:
+Talos hands over the kubeconfig as soon as bootstrap finishes, which is before
+kube-apiserver is serving — and with a VIP, before the endpoint address exists at all. So
+`terraform apply && kubectl apply -f ...` races the cluster coming up. Setting
+`wait_for_cluster_health = true` blocks apply until the cluster reports healthy, which closes
+that race:
 
 ```terraform
-  wait_for_cluster_health = false
+  wait_for_cluster_health = true
 ```
+
+**It is off by default deliberately.** The check is a data source, so Terraform re-reads it on
+every refresh and plan, not only when creating the cluster. A cluster that is temporarily
+degraded — a node powered off for maintenance, a control node mid-reboot — will then fail
+`terraform plan` until it recovers, which is exactly when you need to plan a fix. Turn it on
+for first provisioning and for CI, where the guarantee is worth more than planning against a
+sick cluster.
+
+Two knobs come with it:
+
+- `cluster_health_skip_kubernetes_checks` — **required if you disable the built-in CNI**
+  (`cluster.network.cni.name = "none"`, the usual way to install Cilium). Nodes stay `NotReady`
+  until that CNI is deployed, which happens after Terraform finishes, so the Kubernetes checks
+  would never pass. This keeps the etcd and boot checks and drops only the Kubernetes ones.
+- `cluster_health_timeout` — a duration such as `"20m"`. A five-node cluster took about four
+  and a half minutes to report healthy, so larger clusters or slow storage may need more than
+  the provider default.
+
+One limitation worth knowing: the check talks to the control nodes' own addresses, never to
+`talos_cluster_endpoint`, because Talos documents that a VIP must not be used as a Talos API
+endpoint. If you use a VIP, a healthy result means etcd and kube-apiserver are up on the nodes
+— the VIP is claimed as a consequence of that same etcd election, but nothing here explicitly
+waits for the claim.
 
 ## Declaring node addresses
 
@@ -273,8 +293,9 @@ a time through an etcd election, which carries real constraints — all quoted f
   pattern — put a real load balancer in front and point `talos_cluster_endpoint` at it.
 - **The VIP does not come up until after Kubernetes is bootstrapped**, because the
   election depends on etcd. During the first `terraform apply` the endpoint written into
-  every machine config is unreachable, and this module does not gate on cluster health, so
-  `apply` can return a `kubeconfig` whose server is not answering yet.
+  every machine config is unreachable, so `apply` can return a `kubeconfig` whose server is not
+  answering yet. `wait_for_cluster_health = true` (above) closes most of this gap, though it
+  waits on the control nodes rather than on the VIP itself.
 - **Unexpected failover takes up to a minute**, by design, to avoid split brain. Graceful
   shutdown reassigns almost instantly.
 - **Do not use the VIP as the Talos API endpoint.** Talos is explicit: the VIP is bound to

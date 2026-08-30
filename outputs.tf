@@ -1,7 +1,6 @@
 # Copyright (c) 2024 BB Tech Systems LLC
 
 output "talos_config" {
-    depends_on  = [data.talos_cluster_health.cluster_health]
     description = "Talos configuration file"
     value       = data.talos_client_configuration.talos_client_config.talos_config
     sensitive   = true
