@@ -1,0 +1,23 @@
+# Terraform state — contains cluster secrets in plaintext
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+
+# Saved plans
+*.tfplan
+
+# Local variable files and provider config (credentials)
+*.tfvars
+*.tfvars.json
+provider.tf
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Generated cluster credentials
+kubeconfig
+talos_config.yaml
