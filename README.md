@@ -136,15 +136,50 @@ below about interface names):
 Keep this in sync with `control_node_addresses`. If they disagree, the apply hangs trying to
 reach an address nothing answers on.
 
-### What this does not do
+### Static addresses with no DHCP at all
 
-It does not let you run with **no DHCP at all**. Talos boots into maintenance mode with only
-whatever address it can obtain on its own, and the machine configuration — including any
-`LinkConfig` above — is delivered over the network to that address. A node that has no
-address cannot be given one this way. Addressing a node before its first boot means kernel
-command-line arguments or an image that carries its own configuration, neither of which this
-module can supply while booting a plain qcow2 disk. Track
-[#12](https://github.com/bbtechsys/terraform-proxmox-talos/issues/12) for that.
+The section above still relies on something handing the node an address before Terraform can
+reach it. To remove DHCP entirely, boot the Image Factory's **nocloud** image instead: Proxmox
+generates a cloud-init drive from the VM's settings, and Talos reads its networking from that
+drive at boot, before any API call.
+
+```terraform
+  talos_platform = "nocloud"
+
+  node_network = {
+    prefix_length = 24
+    gateway       = "10.32.1.1"
+    nameservers   = ["10.32.1.1"]
+  }
+
+  control_node_addresses = { "nc-control-0" = "10.32.1.80" }
+  worker_node_addresses  = { "nc-worker-0"  = "10.32.1.83" }
+```
+
+That is the whole configuration — Proxmox builds the cloud-init drive through its API, so this
+needs **no snippets datastore and no SSH access** to the hosts. Every node listed gets its
+address at boot, and `agent.wait_for_ip` is disabled for it, so nothing waits on the guest
+agent. Nodes without a declared address are unaffected and keep using DHCP.
+
+Verified on a live cluster: Talos reports the address as coming from the platform rather than
+DHCP, and no DHCP lease exists on the node —
+
+```console
+$ talosctl get addressspecs --namespace network-config
+NODE         NAMESPACE        TYPE          ID
+10.32.1.80   network-config   AddressSpec   platform/eth0/10.32.1.80/24
+```
+
+Three things to know:
+
+- **Switching `talos_platform` replaces every VM.** It changes the image file name, hence each
+  VM's `disk.file_id`, which is ForceNew. Choose it when creating a cluster; changing it later
+  rebuilds one.
+- **The nocloud image names the NIC `eth0`**, unlike the metal image, which uses predictable
+  names such as `ens18`. This matters for any config patch that refers to an interface — see
+  the VIP section below.
+- **Nodes get their Terraform name as hostname.** On the metal image Talos generates a random
+  one like `talos-0uk-jxa`; with cloud-init the Kubernetes node is named `nc-control-0`.
 
 ## High-availability control plane endpoint (VIP)
 

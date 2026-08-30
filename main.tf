@@ -17,6 +17,8 @@ locals {
     # a legitimate primary interface.
     cni_interface_prefixes = ["flannel", "cni", "cali", "veth", "docker", "kube-"]
 
+    # Only for nodes actually using discovery: a node with a declared address has
+    # wait_for_ip disabled, so the agent reports nothing and these lists are empty.
     control_node_discovered_ip = {
         for name, vm in proxmox_virtual_environment_vm.talos_control_vm :
         name => [
@@ -26,7 +28,10 @@ locals {
                 && !startswith(vm.ipv4_addresses[index][0], "169.254.")
                 && length([for prefix in local.cni_interface_prefixes : true if startswith(interface, prefix)]) == 0
         ][0]
+        if !contains(keys(var.control_node_addresses), name)
     }
+    # Only for nodes actually using discovery: a node with a declared address has
+    # wait_for_ip disabled, so the agent reports nothing and these lists are empty.
     worker_node_discovered_ip = {
         for name, vm in proxmox_virtual_environment_vm.talos_worker_vm :
         name => [
@@ -36,6 +41,7 @@ locals {
                 && !startswith(vm.ipv4_addresses[index][0], "169.254.")
                 && length([for prefix in local.cni_interface_prefixes : true if startswith(interface, prefix)]) == 0
         ][0]
+        if !contains(keys(var.worker_node_addresses), name)
     }
 
     # A node's address comes from var.*_node_addresses when declared, otherwise from the
@@ -64,8 +70,10 @@ locals {
     # Set var.talos_cluster_endpoint to a VIP or load balancer for an HA endpoint.
     resolved_cluster_endpoint = coalesce(var.talos_cluster_endpoint, "https://${local.primary_control_node_ip}:6443")
 
-    talos_image_url       = "https://factory.talos.dev/image/${var.talos_schematic_id}/v${var.talos_version}/metal-${var.talos_arch}.qcow2"
-    talos_image_file_name = "${var.talos_cluster_name}-talos_linux-${var.talos_schematic_id}-${var.talos_version}-${var.talos_arch}.img"
+    talos_image_url = "https://factory.talos.dev/image/${var.talos_schematic_id}/v${var.talos_version}/${var.talos_platform}-${var.talos_arch}.qcow2"
+    # The metal name is deliberately left unsuffixed: changing it would change every
+    # VM's disk.file_id, which is ForceNew, and replace existing clusters.
+    talos_image_file_name = "${var.talos_cluster_name}-talos_linux-${var.talos_schematic_id}-${var.talos_version}-${var.talos_arch}${var.talos_platform == "metal" ? "" : "-${var.talos_platform}"}.img"
 
     iso_datastores = {
         for host, result in data.proxmox_datastores.iso :
@@ -81,6 +89,17 @@ locals {
         var.proxmox_iso_datastore_shared,
         try(local.iso_datastores[local.primary_proxmox_host][var.proxmox_iso_datastore].shared, false),
         false
+    )
+
+    # Nodes given their address by cloud-init at boot. Requires the nocloud platform
+    # (the metal image has no cloud-init datasource), network settings, and a declared
+    # address. Proxmox generates the cloud-init network data itself from ip_config, so
+    # this needs no snippets datastore and no SSH access to the host.
+    cloud_init_nodes = var.talos_platform != "nocloud" || var.node_network == null ? {} : merge(
+        { for name, address in var.control_node_addresses : name => address
+            if contains(keys(var.control_nodes), name) },
+        { for name, address in var.worker_node_addresses : name => address
+            if contains(keys(var.worker_nodes), name) },
     )
 
     talos_image_hosts = local.iso_datastore_shared ? toset([local.primary_proxmox_host]) : local.proxmox_hosts
@@ -147,6 +166,26 @@ resource "proxmox_virtual_environment_vm" "talos_control_vm" {
         bridge      = var.proxmox_network_bridge
         mac_address = lookup(var.control_plane_mac_addresses, each.key, null)
     }
+    dynamic "initialization" {
+        for_each = contains(keys(local.cloud_init_nodes), each.key) ? [each.key] : []
+        content {
+            datastore_id = var.proxmox_image_datastore
+            interface    = "ide2"
+            type         = "nocloud"
+            ip_config {
+                ipv4 {
+                    address = "${local.cloud_init_nodes[initialization.value]}/${var.node_network.prefix_length}"
+                    gateway = var.node_network.gateway
+                }
+            }
+            dynamic "dns" {
+                for_each = length(var.node_network.nameservers) == 0 ? [] : [1]
+                content {
+                    servers = var.node_network.nameservers
+                }
+            }
+        }
+    }
     operating_system {
         type = "l26"
     }
@@ -196,6 +235,26 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
             size         = disk.value.size
         }
 
+    }
+    dynamic "initialization" {
+        for_each = contains(keys(local.cloud_init_nodes), each.key) ? [each.key] : []
+        content {
+            datastore_id = var.proxmox_image_datastore
+            interface    = "ide2"
+            type         = "nocloud"
+            ip_config {
+                ipv4 {
+                    address = "${local.cloud_init_nodes[initialization.value]}/${var.node_network.prefix_length}"
+                    gateway = var.node_network.gateway
+                }
+            }
+            dynamic "dns" {
+                for_each = length(var.node_network.nameservers) == 0 ? [] : [1]
+                content {
+                    servers = var.node_network.nameservers
+                }
+            }
+        }
     }
     operating_system {
         type = "l26"

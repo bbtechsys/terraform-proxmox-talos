@@ -20,6 +20,36 @@ variable "talos_image_upload_timeout" {
     default     = 600
 }
 
+variable "talos_platform" {
+    # "metal" boots the plain disk image and gets its address from DHCP (or from a
+    # config patch applied later). "nocloud" boots the Image Factory's nocloud image,
+    # which reads networking from the cloud-init drive Proxmox generates — the only way
+    # to give a node a static address before Terraform first talks to it. Pair it with
+    # node_network and control_node_addresses / worker_node_addresses.
+    description = "Talos Image Factory platform: \"metal\" (default) or \"nocloud\" for cloud-init network configuration"
+    type        = string
+    default     = "metal"
+    nullable    = false
+
+    validation {
+        condition     = contains(["metal", "nocloud"], var.talos_platform)
+        error_message = "talos_platform must be \"metal\" or \"nocloud\"."
+    }
+}
+
+
+variable "node_network" {
+    # Applied to every node that has an entry in control_node_addresses or
+    # worker_node_addresses. Only used when talos_platform is "nocloud".
+    description = "Static network settings for nodes with a declared address, written to their cloud-init network config"
+    type = object({
+        prefix_length = number
+        gateway       = string
+        nameservers   = optional(list(string), [])
+    })
+    default = null
+}
+
 variable "proxmox_image_datastore" {
     description = "Datastore to put the VM hard drive images"
     type        = string
