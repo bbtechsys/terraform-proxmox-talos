@@ -202,17 +202,23 @@ module "talos" {
   talos_version          = "1.13.9"
   talos_cluster_endpoint = "https://192.168.88.200:6443" # the shared VIP
 
+  # Recommended: pair a VIP with nocloud + declared addresses (see above). It removes
+  # the guest-agent interaction described below, and node IPs become known at plan time.
+  talos_platform = "nocloud"
+
   control_machine_config_patches = [
     # Supplying this list REPLACES the module default, so re-include the install disk.
     yamlencode({ machine = { install = { disk = "/dev/vda" } } }),
 
-    # Give the physical NIC a stable alias. Talos has used predictable interface
-    # names (enp0s18, ...) since 1.5, so there is no portable "eth0" to point at.
+    # Give the NIC a stable alias, selected by driver rather than by name. The metal
+    # image uses predictable names (ens18) and the nocloud image uses eth0, so there is
+    # no single interface name that works on both — but the driver is virtio_net on
+    # either, and it matches exactly one link, which Layer2VIPConfig requires.
     yamlencode({
       apiVersion = "v1alpha1"
       kind       = "LinkAliasConfig"
       name       = "net0"
-      selector   = { match = "true" }
+      selector   = { match = "link.driver == \"virtio_net\"" }
     }),
 
     # Advertise the VIP on that alias, elected between control nodes via etcd.
@@ -228,6 +234,11 @@ module "talos" {
 
 `talos_cluster_endpoint` defaults to `null` (legacy first-node behavior), so this change
 is fully backward compatible.
+
+Verified on a live 3-control-node cluster: Talos logs `enabled shared IP {"operator": "vip",
+"link": "ens18", "ip": ...}` once etcd elects a leader, and `kubectl` works through the VIP
+endpoint. Note the alias resolves to the real link, so `link: net0` is what you write and
+`ens18` (or `eth0`) is what Talos binds.
 
 ### Before you use a VIP
 
@@ -248,14 +259,16 @@ a time through an etcd election, which carries real constraints — all quoted f
 - **Do not use the VIP as the Talos API endpoint.** Talos is explicit: the VIP is bound to
   etcd and kube-apiserver health, so you could not reach the Talos API to recover etcd.
 
-That last point interacts with this module: a VIP is a second address on the same NIC, so
-the QEMU guest agent reports it, and node IPs here come from the guest agent
-(`ipv4_addresses[7][0]`). On whichever node holds the VIP, discovery can return the VIP
-instead of the node's own address, putting it into `talos_machine_bootstrap` and the
-`talos_config` output. Declaring `control_node_addresses` (above) takes discovery out of the
-loop entirely and is the recommended pairing with a VIP. Otherwise check the
-`control_plane_ips` output after applying, and if the VIP appears there, pin node addresses
-with `mac_address` + DHCP reservations.
+That last point interacts with this module. A VIP is a second address on the same NIC, so the
+QEMU guest agent reports it — confirmed on a live cluster, where the node holding the VIP
+reported `ens18: ['10.32.1.234', '10.32.1.88']`. Discovery takes the interface's *first*
+address, so it picks the node's own, but that ordering is not something the guest agent
+guarantees.
+
+The clean answer is to not use discovery at all: set `talos_platform = "nocloud"` and declare
+`control_node_addresses`. Node IPs then come from your configuration rather than from the
+agent, so the VIP cannot be mistaken for one no matter what the agent reports. If you stay on
+discovery, check the `control_plane_ips` output after applying and confirm the VIP is absent.
 
 ## Per-node configuration patches
 
