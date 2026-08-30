@@ -4,21 +4,52 @@ locals {
     primary_proxmox_host = values(var.control_nodes)[0]
     proxmox_hosts        = toset(concat(values(var.control_nodes), values(var.worker_nodes)))
 
+    # The QEMU guest agent reports every interface Talos creates — lo, bond0, dummy0,
+    # teql0, tunl0, sit0, ip6tnl0 — before the real NIC, so the NIC has historically
+    # landed at index 7. That is an accident of how many dummy interfaces Talos happens
+    # to make, and it shifts the moment one is added or removed. Select the first
+    # interface that actually reports a routable IPv4 instead of trusting a position,
+    # and take that interface's first address (so a Talos VIP, which is a second address
+    # on the same NIC, is not mistaken for the node's own).
+    # Interfaces belonging to the pod network. These report routable IPv4s too, so
+    # without excluding them a node could be addressed on its CNI interface. Matched
+    # by name prefix; bond*/dummy* are deliberately not listed, since a bonded NIC is
+    # a legitimate primary interface.
+    cni_interface_prefixes = ["flannel", "cni", "cali", "veth", "docker", "kube-"]
+
+    control_node_discovered_ip = {
+        for name, vm in proxmox_virtual_environment_vm.talos_control_vm :
+        name => [
+            for index, interface in vm.network_interface_names : vm.ipv4_addresses[index][0]
+            if length(vm.ipv4_addresses[index]) > 0
+                && !startswith(vm.ipv4_addresses[index][0], "127.")
+                && !startswith(vm.ipv4_addresses[index][0], "169.254.")
+                && length([for prefix in local.cni_interface_prefixes : true if startswith(interface, prefix)]) == 0
+        ][0]
+    }
+    worker_node_discovered_ip = {
+        for name, vm in proxmox_virtual_environment_vm.talos_worker_vm :
+        name => [
+            for index, interface in vm.network_interface_names : vm.ipv4_addresses[index][0]
+            if length(vm.ipv4_addresses[index]) > 0
+                && !startswith(vm.ipv4_addresses[index][0], "127.")
+                && !startswith(vm.ipv4_addresses[index][0], "169.254.")
+                && length([for prefix in local.cni_interface_prefixes : true if startswith(interface, prefix)]) == 0
+        ][0]
+    }
+
     # A node's address comes from var.*_node_addresses when declared, otherwise from the
-    # QEMU guest agent. Index 7 is Talos's primary NIC in the agent's interface list.
-    # Declaring addresses is what makes statically addressed (DHCP-free) nodes work, and
-    # it also keeps a Talos VIP — a second address on the same NIC — out of discovery.
+    # guest agent. A conditional rather than try(): try() would also swallow a genuine
+    # discovery failure and report it as "no expression succeeded", hiding which half broke.
     control_node_ip = { for name in keys(var.control_nodes) :
-        name => try(
-            var.control_node_addresses[name],
-            proxmox_virtual_environment_vm.talos_control_vm[name].ipv4_addresses[7][0]
-        )
+        name => contains(keys(var.control_node_addresses), name)
+            ? var.control_node_addresses[name]
+            : local.control_node_discovered_ip[name]
     }
     worker_node_ip = { for name in keys(var.worker_nodes) :
-        name => try(
-            var.worker_node_addresses[name],
-            proxmox_virtual_environment_vm.talos_worker_vm[name].ipv4_addresses[7][0]
-        )
+        name => contains(keys(var.worker_node_addresses), name)
+            ? var.worker_node_addresses[name]
+            : local.worker_node_discovered_ip[name]
     }
 
     primary_control_node_ip = local.control_node_ip[keys(var.control_nodes)[0]]

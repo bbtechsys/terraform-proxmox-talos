@@ -88,61 +88,63 @@ match reality — for example a `dir` store that is backed by a filesystem share
 Proxmox's knowledge. Use `talos_image_upload_timeout` to raise the per-download 600s timeout
 on a slow link.
 
-## Static IP addresses (no DHCP)
+## Declaring node addresses
 
-By default this module learns each node's IP from the QEMU guest agent, which assumes
-something is handing out addresses. In an environment with no DHCP at all, declare the
-addresses instead — `control_node_addresses` / `worker_node_addresses`, keyed by node name:
+By default this module learns each node's IP from the QEMU guest agent. If you already know
+what a node's address will be, declare it instead with `control_node_addresses` /
+`worker_node_addresses`, keyed by node name:
 
 ```terraform
   control_node_addresses = {
     "talos-control-0" = "10.0.0.11"
   }
-  worker_node_addresses = {
-    "talos-worker-0" = "10.0.0.21"
-  }
 ```
 
-For any node listed there the module uses that address rather than the guest agent, and does
-not wait for the agent to report an IP. Node addresses then become known at plan time instead
-of after apply. Nodes you leave out keep using discovery, so mixing the two is fine.
+For any node listed there the module uses that address instead of the guest agent, and does
+not wait for the agent to report an IP. Node addresses become known at plan time rather than
+after apply, and a Talos VIP can no longer be mistaken for a node's own address. Nodes you
+leave out keep using discovery, so mixing the two is fine.
 
-Declaring the address only tells *Terraform* where the node is — you must also configure it
-inside Talos with a config patch. On Talos **1.13 and later** that is a `LinkConfig`
-(see the note above about interface names, and `ResolverConfig` for DNS):
+> **The node must already answer on that address when Terraform first contacts it.**
+> Declaring an address does not assign one. In practice that means a DHCP reservation
+> against the node's MAC — see `control_plane_mac_addresses` / `worker_mac_addresses`.
+
+### Making the address permanent in Talos
+
+To pin the address inside Talos as well, patch a `LinkConfig` (Talos 1.13+; see the note
+below about interface names):
 
 ```terraform
   control_machine_config_patches_by_node = {
     "talos-control-0" = [
       yamlencode({
         apiVersion = "v1alpha1"
-        kind       = "LinkAliasConfig"
-        name       = "net0"
-        selector   = { match = "true" }
-      }),
-      yamlencode({
-        apiVersion = "v1alpha1"
         kind       = "LinkConfig"
-        name       = "net0"
-        up         = true
+        name       = "ens18"
         addresses  = [{ address = "10.0.0.11/24" }]
         routes     = [{ gateway = "10.0.0.1" }]
       }),
       yamlencode({
         apiVersion  = "v1alpha1"
         kind        = "ResolverConfig"
-        nameservers = [{ address = "1.1.1.1" }]
+        nameservers = [{ address = "10.0.0.1" }]
       }),
     ]
   }
 ```
 
-Keep the two in sync: the address in `control_node_addresses` is what Terraform talks to, and
-the one in `LinkConfig` is what the node actually configures. If they disagree, the apply
-hangs trying to reach an address nothing answers on.
+Keep this in sync with `control_node_addresses`. If they disagree, the apply hangs trying to
+reach an address nothing answers on.
 
-This is also the fix for the VIP caveat below — with addresses declared, a VIP can no longer
-be mistaken for a node's own address.
+### What this does not do
+
+It does not let you run with **no DHCP at all**. Talos boots into maintenance mode with only
+whatever address it can obtain on its own, and the machine configuration — including any
+`LinkConfig` above — is delivered over the network to that address. A node that has no
+address cannot be given one this way. Addressing a node before its first boot means kernel
+command-line arguments or an image that carries its own configuration, neither of which this
+module can supply while booting a plain qcow2 disk. Track
+[#12](https://github.com/bbtechsys/terraform-proxmox-talos/issues/12) for that.
 
 ## High-availability control plane endpoint (VIP)
 

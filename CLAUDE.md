@@ -33,10 +33,12 @@ Ordering is entirely implicit via resource references; there is one explicit `de
 
 ### Two things that constrain most changes
 
-**IP discovery defaults to the QEMU guest agent and DHCP.** `local.control_node_ip` / `local.worker_node_ip` resolve each node to `try(var.<control|worker>_node_addresses[name], …ipv4_addresses[7][0])` — index 7 is the position of Talos's primary NIC in the guest-agent interface list. Declaring an address also sets `agent.wait_for_ip.disabled` for that VM, so a fully declared cluster needs no DHCP and its IPs are known at plan time. Everything below applies to nodes left to discovery, which is still the default:
+**IP discovery defaults to the QEMU guest agent.** `local.control_node_ip` / `local.worker_node_ip` resolve each node to `var.<control|worker>_node_addresses[name]` when declared, otherwise to `local.*_node_discovered_ip`, which walks `network_interface_names` and takes the first interface reporting a routable IPv4 — skipping loopback, link-local, and CNI interfaces by name prefix. It deliberately does **not** index a fixed position: the agent lists Talos's dummy interfaces (bond0, dummy0, teql0, tunl0, sit0, ip6tnl0) before the real NIC, which is why `[7]` used to work, and that count is not a contract. It takes the interface's *first* address so a Talos VIP, a second address on the same NIC, is not picked up.
+
+Declaring an address also sets `agent.wait_for_ip.disabled` for that VM. It does not assign the address — the node must already answer there (a DHCP reservation), because machine config is delivered over the network. Everything below applies to nodes left to discovery, which is still the default:
 - The Talos schematic **must** include the `qemu-guest-agent` extension (the default `talos_schematic_id` does), or the apply hangs/fails with no IPs.
-- Anything touching networking (extra NICs, VLAN changes) can shift that `[7]` index.
-- A Talos VIP is a second address on the same NIC, so discovery can return it instead of the node's own address. Declaring node addresses is the way out.
+- Extra NICs or VLANs change what the agent reports; discovery picks the first routable non-CNI interface, so an added NIC that comes up first would win.
+- A Talos VIP is a second address on the same NIC. Verified on a live cluster: the holder reports `['10.32.1.234', '10.32.1.88']`, node address first — which is why discovery takes `[0]` and not a scan.
 
 **The cluster endpoint defaults to a single point of failure.** `local.resolved_cluster_endpoint` is `coalesce(var.talos_cluster_endpoint, "https://${local.primary_control_node_ip}:6443")`, where the primary is `keys(var.control_nodes)[0]`. Left unset, both machine configurations point at that one node, exactly as before the override existed. `var.talos_cluster_endpoint` takes a VIP or load-balancer address instead.
 
