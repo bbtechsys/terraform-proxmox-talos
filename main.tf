@@ -12,6 +12,10 @@ locals {
         local.worker_node_ips
     )
 
+    # Defaults to the first control node's IP for backward compatibility.
+    # Set var.talos_cluster_endpoint to a VIP or load balancer for an HA endpoint.
+    talos_cluster_endpoint = coalesce(var.talos_cluster_endpoint, "https://${local.primary_control_node_ip}:6443")
+
     talos_image_url       = "https://factory.talos.dev/image/${var.talos_schematic_id}/v${var.talos_version}/metal-${var.talos_arch}.qcow2"
     talos_image_file_name = "${var.talos_cluster_name}-talos_linux-${var.talos_schematic_id}-${var.talos_version}-${var.talos_arch}.img"
 
@@ -149,20 +153,18 @@ resource "talos_machine_secrets" "talos_secrets" {}
 data "talos_machine_configuration" "control_mc" {
     cluster_name     = var.talos_cluster_name
     machine_type     = "controlplane"
-    # TODO - Should we allow the user to override this?
-    # This is a single point of failure but without a proxy or load balancer
-    # it is required to be a single point of failure.
-    cluster_endpoint = "https://${local.primary_control_node_ip}:6443"
+    # Override via var.cluster_endpoint (e.g. a VIP) for an HA endpoint;
+    # otherwise defaults to the first control node's IP (a single point of failure).
+    cluster_endpoint = local.talos_cluster_endpoint
     machine_secrets  = talos_machine_secrets.talos_secrets.machine_secrets
 }
 
 data "talos_machine_configuration" "worker_mc" {
     cluster_name     = var.talos_cluster_name
     machine_type     = "worker"
-    # TODO - Should we allow the user to override this?
-    # This is a single point of failure but without a proxy or load balancer
-    # it is required to be a single point of failure.
-    cluster_endpoint = "https://${local.primary_control_node_ip}:6443"
+    # Override via var.cluster_endpoint (e.g. a VIP) for an HA endpoint;
+    # otherwise defaults to the first control node's IP (a single point of failure).
+    cluster_endpoint = local.talos_cluster_endpoint
     machine_secrets  = talos_machine_secrets.talos_secrets.machine_secrets
 }
 
@@ -178,7 +180,10 @@ resource "talos_machine_configuration_apply" "talos_control_mc_apply" {
     client_configuration        = talos_machine_secrets.talos_secrets.client_configuration
     machine_configuration_input = data.talos_machine_configuration.control_mc.machine_configuration
     node                        = proxmox_virtual_environment_vm.talos_control_vm[each.key].ipv4_addresses[7][0]
-    config_patches              = var.control_machine_config_patches
+    config_patches              = concat(
+        var.control_machine_config_patches,
+        lookup(var.control_machine_config_patches_by_node, each.key, [])
+    )
 }
 
 resource "talos_machine_configuration_apply" "talos_worker_mc_apply" {
@@ -186,7 +191,10 @@ resource "talos_machine_configuration_apply" "talos_worker_mc_apply" {
     client_configuration        = talos_machine_secrets.talos_secrets.client_configuration
     machine_configuration_input = data.talos_machine_configuration.worker_mc.machine_configuration
     node                        = proxmox_virtual_environment_vm.talos_worker_vm[each.key].ipv4_addresses[7][0]
-    config_patches              = var.worker_machine_config_patches
+    config_patches              = concat(
+        var.worker_machine_config_patches,
+        lookup(var.worker_machine_config_patches_by_node, each.key, [])
+    )
 }
 
 # You only need to bootstrap 1 control node, we pick the first one

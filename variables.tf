@@ -98,6 +98,17 @@ variable "talos_cluster_name" {
     type        = string
 }
 
+variable "talos_cluster_endpoint" {
+    # When null, the endpoint defaults to https://<first control node IP>:6443,
+    # which is a single point of failure. Set this to a shared VIP or a
+    # load-balancer/proxy address (e.g. https://10.0.0.10:6443) for an HA endpoint.
+    # If using a Talos shared VIP, also define it via control_machine_config_patches
+    # or control_machine_config_patches_by_node (machine.network.interfaces[].vip.ip).
+    description = "Kubernetes API cluster endpoint (e.g. https://<vip>:6443). Defaults to the first control node's IP."
+    type        = string
+    default     = null
+}
+
 variable "proxmox_control_pool_id" {
     description = "Proxmox control VM pool ID"
     type = string
@@ -175,6 +186,30 @@ machine:
     disk: "/dev/vda"
 EOT
     ]
+}
+
+variable "control_machine_config_patches_by_node" {
+    # Patches here are appended AFTER control_machine_config_patches, so they can
+    # override shared values. Use for per-node settings such as hostnames, node
+    # labels or kubelet args. Do NOT set static addresses here: node IPs are
+    # discovered through the QEMU guest agent, so a static-address patch can move a
+    # node out from under that discovery. Pin a mac_address + DHCP reservation instead.
+    # Example:
+    # control_machine_config_patches_by_node = {
+    #   "talos-control-0" = [yamlencode({ machine = { network = { hostname = "cp0" } } })]
+    # }
+    description = "Map of control node name to a list of extra YAML patches applied after the shared control patches"
+    type        = map(list(string))
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_machine_config_patches_by_node" {
+    # Patches here are appended AFTER worker_machine_config_patches.
+    description = "Map of worker node name to a list of extra YAML patches applied after the shared worker patches"
+    type        = map(list(string))
+    default     = {}
+    nullable    = false
 }
 
 variable "worker_extra_disks" {
