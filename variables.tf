@@ -1,9 +1,23 @@
 # Copyright (c) 2024 BB Tech Systems LLC
 
 variable "proxmox_iso_datastore" {
-    description = "Datastore to put the qcow2 image"
+    description = "Datastore to put the qcow2 image. If it is not shared across the Proxmox cluster it must exist, and accept \"iso\" content, on every host named in control_nodes and worker_nodes"
     type        = string
     default     = "local"
+}
+
+variable "proxmox_iso_datastore_shared" {
+    # A shared datastore holds one copy of the image for the whole cluster; a
+    # node-local one needs a copy on each host running cluster nodes.
+    description = "Override whether proxmox_iso_datastore is shared across the Proxmox cluster. Leave null to read the datastore's shared flag from Proxmox, and set it only when that flag does not match reality"
+    type        = bool
+    default     = null
+}
+
+variable "talos_image_upload_timeout" {
+    description = "Timeout in seconds for downloading the Talos image onto a Proxmox host"
+    type        = number
+    default     = 600
 }
 
 variable "proxmox_image_datastore" {
