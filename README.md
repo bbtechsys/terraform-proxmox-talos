@@ -32,7 +32,7 @@ provider "proxmox" {
 
 module "talos" {
     source  = "bbtechsys/talos/proxmox"
-    version = "1.1.0"
+    version = "1.2.0"
     talos_cluster_name = "test-cluster"
     talos_version = "1.13.9"
     control_nodes = {
@@ -62,6 +62,9 @@ output "kubeconfig" {
 
 ## Upgrading
 
+- **1.1.x → 1.2.0** — no state moves or replacements, but apply now waits for the cluster to be
+  healthy, and two previously silent misconfigurations now fail at plan. See the
+  [1.2 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.2.md).
 - **1.0.x → 1.1.0** — additive; no state moves and no forced replacements. Two behavior notes
   worth reading first, in the
   [1.1 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.1.md).
@@ -90,6 +93,21 @@ Set `proxmox_iso_datastore_shared` only if a datastore's `shared` flag in Proxmo
 match reality — for example a `dir` store that is backed by a filesystem shared outside of
 Proxmox's knowledge. Use `talos_image_upload_timeout` to raise the per-download 600s timeout
 on a slow link.
+
+## Waiting for the cluster to be ready
+
+Talos hands over the kubeconfig as soon as bootstrap finishes, which is before kube-apiserver
+is serving — and with a VIP, before the endpoint address exists at all. By default the module
+therefore waits for the cluster to report healthy before `terraform apply` returns, so
+`terraform apply && kubectl apply -f ...` works without a sleep.
+
+This makes apply take as long as the cluster needs to converge, and a cluster that never
+becomes healthy fails the apply rather than emitting credentials that do not work. To return as
+soon as the configuration is fetched, as versions before 1.2 did:
+
+```terraform
+  wait_for_cluster_health = false
+```
 
 ## Declaring node addresses
 
@@ -199,7 +217,7 @@ On Talos 1.12 and earlier the equivalent lives under `machine.network.interfaces
 ```terraform
 module "talos" {
   source  = "bbtechsys/talos/proxmox"
-  version = "1.1.0"                    # talos_cluster_endpoint is not in 1.0.0
+  version = "1.2.0"                    # talos_cluster_endpoint is not in 1.0.0
   # ... talos_cluster_name, nodes ...
 
   talos_version          = "1.13.9"

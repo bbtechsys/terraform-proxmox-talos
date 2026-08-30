@@ -148,6 +148,16 @@ variable "talos_cluster_name" {
     type        = string
 }
 
+variable "wait_for_cluster_health" {
+    # talos_cluster_kubeconfig returns as soon as bootstrap completes, which is before
+    # kube-apiserver is serving — and with a VIP, before the endpoint address even
+    # exists. Set false to return as soon as the config is fetched, as 1.1 did.
+    description = "Wait for the cluster to become healthy before apply completes, so the kubeconfig output is usable when Terraform returns"
+    type        = bool
+    default     = true
+    nullable    = false
+}
+
 variable "talos_cluster_endpoint" {
     # When null, the endpoint defaults to https://<first control node IP>:6443,
     # which is a single point of failure. Set this to a shared VIP or a
@@ -157,6 +167,14 @@ variable "talos_cluster_endpoint" {
     description = "Kubernetes API cluster endpoint (e.g. https://<vip>:6443). Defaults to the first control node's IP."
     type        = string
     default     = null
+
+    validation {
+        # A port is deliberately not required: 443 is legitimate behind a load balancer.
+        # This catches what is unambiguously broken — no scheme, embedded whitespace
+        # (which coalesce does not treat as empty, unlike ""), or a trailing path.
+        condition     = var.talos_cluster_endpoint == null || can(regex("^https://[^/[:space:]]+$", var.talos_cluster_endpoint))
+        error_message = "talos_cluster_endpoint must be an https:// URL with no path, for example \"https://10.0.0.10:6443\". Talos assumes port 443 when none is given, so a port is usually wanted."
+    }
 }
 
 variable "proxmox_control_pool_id" {
