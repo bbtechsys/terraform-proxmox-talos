@@ -65,7 +65,7 @@ and incompatible resource (14 attributes vs 40). Do not "modernize" it.
 
 `talos_image` was renamed *and* re-keyed in 1.0.0, which forces replacement of every VM for
 anyone upgrading in place. The deliberate call was to keep the module clean for new users and
-document the hazard in `UPGRADE-1.0.md` rather than carry a compatibility shim. Two facts that
+document the hazard in a versioned upgrade guide rather than carry a compatibility shim. Two facts that
 guide belongs on: `terraform state mv` cannot move between resource types, and a single
 `moved` block can cross both the type change and the re-key (verified). When you next make a
 breaking change here, add an `UPGRADE-<version>.md`, link it from the README with an

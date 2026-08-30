@@ -32,7 +32,7 @@ provider "proxmox" {
 
 module "talos" {
     source  = "bbtechsys/talos/proxmox"
-    version = "1.0.0"
+    version = "1.1.0"
     talos_cluster_name = "test-cluster"
     talos_version = "1.13.9"
     control_nodes = {
@@ -60,12 +60,15 @@ output "kubeconfig" {
 }
 ```
 
-## Upgrading from 0.1.x
+## Upgrading
 
-**Upgrading to 1.0.0 will destroy and recreate every VM unless you add a `moved` block
-first.** Read the
-[1.0 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.0.md)
-before you run `terraform apply`.
+- **1.0.x → 1.1.0** — additive; no state moves and no forced replacements. Two behavior notes
+  worth reading first, in the
+  [1.1 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.1.md).
+- **0.1.x → 1.0.0** — **destroys and recreates every VM** unless you add a `moved` block first.
+  Read the
+  [1.0 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.0.md)
+  before you run `terraform apply`.
 
 ## The Talos boot image
 
@@ -196,7 +199,7 @@ On Talos 1.12 and earlier the equivalent lives under `machine.network.interfaces
 ```terraform
 module "talos" {
   source  = "bbtechsys/talos/proxmox"
-  version = "~> 1.1"                   # talos_cluster_endpoint is not in 1.0.0
+  version = "1.1.0"                    # talos_cluster_endpoint is not in 1.0.0
   # ... talos_cluster_name, nodes ...
 
   talos_version          = "1.13.9"
