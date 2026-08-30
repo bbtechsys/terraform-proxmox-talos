@@ -92,35 +92,75 @@ on a slow link.
 
 By default the cluster endpoint points at the first control node's IP, which is a
 single point of failure. To make it highly available, set `talos_cluster_endpoint` to a
-shared [Talos VIP](https://www.talos.dev/latest/talos-guides/network/vip/) and
-define that VIP on the control nodes via a config patch:
+shared [Talos VIP](https://docs.siderolabs.com/talos/v1.13/networking/advanced/vip) and
+define that VIP on the control nodes via config patches.
+
+The VIP config format is **Talos-version specific**. The example below is for Talos
+**1.13 and later**, which configures networking through standalone config documents.
+On Talos 1.12 and earlier the equivalent lives under `machine.network.interfaces[].vip`
+— check the VIP guide for the version you pin in `talos_version`.
 
 ```terraform
 module "talos" {
   source  = "bbtechsys/talos/proxmox"
-  # ... cluster_name, version, nodes ...
+  version = "~> 1.1"                   # talos_cluster_endpoint is not in 1.0.0
+  # ... talos_cluster_name, nodes ...
 
-  talos_cluster_endpoint = "https://192.168.88.200:6443" # shared VIP
+  talos_version          = "1.13.9"
+  talos_cluster_endpoint = "https://192.168.88.200:6443" # the shared VIP
 
   control_machine_config_patches = [
+    # Supplying this list REPLACES the module default, so re-include the install disk.
+    yamlencode({ machine = { install = { disk = "/dev/vda" } } }),
+
+    # Give the physical NIC a stable alias. Talos has used predictable interface
+    # names (enp0s18, ...) since 1.5, so there is no portable "eth0" to point at.
     yamlencode({
-      machine = {
-        install = { disk = "/dev/vda" }
-        network = {
-          interfaces = [{
-            interface = "eth0"
-            dhcp      = true
-            vip       = { ip = "192.168.88.200" }
-          }]
-        }
-      }
-    })
+      apiVersion = "v1alpha1"
+      kind       = "LinkAliasConfig"
+      name       = "net0"
+      selector   = { match = "true" }
+    }),
+
+    # Advertise the VIP on that alias, elected between control nodes via etcd.
+    yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "Layer2VIPConfig"
+      name       = "192.168.88.200"
+      link       = "net0"
+    }),
   ]
 }
 ```
 
 `talos_cluster_endpoint` defaults to `null` (legacy first-node behavior), so this change
 is fully backward compatible.
+
+### Before you use a VIP
+
+A Talos VIP is not a load balancer. It is a shared address claimed by one control node at
+a time through an etcd election, which carries real constraints — all quoted from the
+[Talos VIP guide](https://docs.siderolabs.com/talos/v1.13/networking/advanced/vip):
+
+- **Control nodes must share a layer 2 network**, "connected via a switch, with no router
+  in between them", and the VIP must come from that subnet and be an address your DHCP
+  server will never hand out. A routed multi-subnet Proxmox cluster cannot use this
+  pattern — put a real load balancer in front and point `talos_cluster_endpoint` at it.
+- **The VIP does not come up until after Kubernetes is bootstrapped**, because the
+  election depends on etcd. During the first `terraform apply` the endpoint written into
+  every machine config is unreachable, and this module does not gate on cluster health, so
+  `apply` can return a `kubeconfig` whose server is not answering yet.
+- **Unexpected failover takes up to a minute**, by design, to avoid split brain. Graceful
+  shutdown reassigns almost instantly.
+- **Do not use the VIP as the Talos API endpoint.** Talos is explicit: the VIP is bound to
+  etcd and kube-apiserver health, so you could not reach the Talos API to recover etcd.
+
+That last point interacts with this module: a VIP is a second address on the same NIC, so
+the QEMU guest agent reports it, and node IPs here come from the guest agent
+(`ipv4_addresses[7][0]`). On whichever node holds the VIP, discovery can return the VIP
+instead of the node's own address, putting it into `talos_machine_bootstrap` and the
+`talos_config` output. Check the `control_plane_ips` output after applying; if the VIP
+appears there, pin node addresses with `mac_address` + DHCP reservations.
 
 ## Per-node configuration patches
 

@@ -14,7 +14,7 @@ locals {
 
     # Defaults to the first control node's IP for backward compatibility.
     # Set var.talos_cluster_endpoint to a VIP or load balancer for an HA endpoint.
-    talos_cluster_endpoint = coalesce(var.talos_cluster_endpoint, "https://${local.primary_control_node_ip}:6443")
+    resolved_cluster_endpoint = coalesce(var.talos_cluster_endpoint, "https://${local.primary_control_node_ip}:6443")
 
     talos_image_url       = "https://factory.talos.dev/image/${var.talos_schematic_id}/v${var.talos_version}/metal-${var.talos_arch}.qcow2"
     talos_image_file_name = "${var.talos_cluster_name}-talos_linux-${var.talos_schematic_id}-${var.talos_version}-${var.talos_arch}.img"
@@ -153,18 +153,14 @@ resource "talos_machine_secrets" "talos_secrets" {}
 data "talos_machine_configuration" "control_mc" {
     cluster_name     = var.talos_cluster_name
     machine_type     = "controlplane"
-    # Override via var.cluster_endpoint (e.g. a VIP) for an HA endpoint;
-    # otherwise defaults to the first control node's IP (a single point of failure).
-    cluster_endpoint = local.talos_cluster_endpoint
+    cluster_endpoint = local.resolved_cluster_endpoint
     machine_secrets  = talos_machine_secrets.talos_secrets.machine_secrets
 }
 
 data "talos_machine_configuration" "worker_mc" {
     cluster_name     = var.talos_cluster_name
     machine_type     = "worker"
-    # Override via var.cluster_endpoint (e.g. a VIP) for an HA endpoint;
-    # otherwise defaults to the first control node's IP (a single point of failure).
-    cluster_endpoint = local.talos_cluster_endpoint
+    cluster_endpoint = local.resolved_cluster_endpoint
     machine_secrets  = talos_machine_secrets.talos_secrets.machine_secrets
 }
 

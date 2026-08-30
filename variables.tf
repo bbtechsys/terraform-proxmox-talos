@@ -174,6 +174,7 @@ machine:
     disk: "/dev/vda"
 EOT
     ]
+    nullable    = false
 }
 
 variable "worker_machine_config_patches" {
@@ -186,6 +187,7 @@ machine:
     disk: "/dev/vda"
 EOT
     ]
+    nullable    = false
 }
 
 variable "control_machine_config_patches_by_node" {
@@ -205,7 +207,11 @@ variable "control_machine_config_patches_by_node" {
 }
 
 variable "worker_machine_config_patches_by_node" {
-    # Patches here are appended AFTER worker_machine_config_patches.
+    # Patches here are appended AFTER worker_machine_config_patches, so they can
+    # override shared values. Use for per-node settings such as hostnames, node
+    # labels or kubelet args. Do NOT set static addresses here: node IPs are
+    # discovered through the QEMU guest agent, so a static-address patch can move a
+    # node out from under that discovery. Pin a mac_address + DHCP reservation instead.
     description = "Map of worker node name to a list of extra YAML patches applied after the shared worker patches"
     type        = map(list(string))
     default     = {}
