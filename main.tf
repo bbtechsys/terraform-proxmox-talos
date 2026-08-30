@@ -4,19 +4,19 @@ locals {
     primary_proxmox_host = values(var.control_nodes)[0]
     proxmox_hosts        = toset(concat(values(var.control_nodes), values(var.worker_nodes)))
 
-    # The QEMU guest agent reports every interface Talos creates — lo, bond0, dummy0,
-    # teql0, tunl0, sit0, ip6tnl0 — before the real NIC, so the NIC has historically
-    # landed at index 7. That is an accident of how many dummy interfaces Talos happens
-    # to make, and it shifts the moment one is added or removed. Select the first
-    # interface that actually reports a routable IPv4 instead of trusting a position,
-    # and take that interface's first address (so a Talos VIP, which is a second address
-    # on the same NIC, is not mistaken for the node's own).
     # Interfaces belonging to the pod network. These report routable IPv4s too, so
     # without excluding them a node could be addressed on its CNI interface. Matched
     # by name prefix; bond*/dummy* are deliberately not listed, since a bonded NIC is
     # a legitimate primary interface.
     cni_interface_prefixes = ["flannel", "cni", "cali", "veth", "docker", "kube-"]
 
+    # The QEMU guest agent reports every interface Talos creates — lo, bond0, dummy0,
+    # teql0, tunl0, sit0, ip6tnl0 — before the real NIC, so the NIC historically landed
+    # at index 7. That was an accident of how many dummy interfaces Talos happens to
+    # make, and it shifts the moment one is added or removed, so select the first
+    # interface actually reporting a routable IPv4 instead of trusting a position. Take
+    # that interface's first address, so a Talos VIP — a second address on the same NIC
+    # — is not mistaken for the node's own.
     # Only for nodes actually using discovery: a node with a declared address has
     # wait_for_ip disabled, so the agent reports nothing and these lists are empty.
     control_node_discovered_ip = {
@@ -101,6 +101,11 @@ locals {
         { for name, address in var.worker_node_addresses : name => address
             if contains(keys(var.worker_nodes), name) },
     )
+
+    # Keys in the per-node patch maps that match no node. lookup() returns [] for these,
+    # so without a check the patch is silently dropped and the apply reports success.
+    control_patch_orphan_keys = setsubtract(keys(var.control_machine_config_patches_by_node), keys(var.control_nodes))
+    worker_patch_orphan_keys  = setsubtract(keys(var.worker_machine_config_patches_by_node), keys(var.worker_nodes))
 
     talos_image_hosts = local.iso_datastore_shared ? toset([local.primary_proxmox_host]) : local.proxmox_hosts
 
@@ -261,7 +266,22 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
     }
 }
 
-resource "talos_machine_secrets" "talos_secrets" {}
+resource "talos_machine_secrets" "talos_secrets" {
+    # These checks live here rather than on the machine_configuration_apply resources
+    # because those use for_each: with an empty node map they would have no instances
+    # and the check would silently not run, and with several they would report the same
+    # map-wide problem once per node. This resource always has exactly one instance.
+    lifecycle {
+        precondition {
+            condition     = length(local.control_patch_orphan_keys) == 0
+            error_message = "control_machine_config_patches_by_node has keys matching no entry in control_nodes: ${join(", ", local.control_patch_orphan_keys)}. Patches under those keys would be silently dropped."
+        }
+        precondition {
+            condition     = length(local.worker_patch_orphan_keys) == 0
+            error_message = "worker_machine_config_patches_by_node has keys matching no entry in worker_nodes: ${join(", ", local.worker_patch_orphan_keys)}. Patches under those keys would be silently dropped."
+        }
+    }
+}
 
 data "talos_machine_configuration" "control_mc" {
     cluster_name     = var.talos_cluster_name
@@ -296,6 +316,12 @@ resource "talos_machine_configuration_apply" "talos_control_mc_apply" {
 }
 
 resource "talos_machine_configuration_apply" "talos_worker_mc_apply" {
+    # Workers are configured only after the cluster is bootstrapped. Their config names
+    # the cluster endpoint, and with a Talos VIP that address does not exist until
+    # bootstrap completes, so without this a worker sits retrying its API join.
+    depends_on = [
+        talos_machine_bootstrap.talos_bootstrap
+    ]
     for_each = var.worker_nodes
     client_configuration        = talos_machine_secrets.talos_secrets.client_configuration
     machine_configuration_input = data.talos_machine_configuration.worker_mc.machine_configuration
@@ -308,6 +334,11 @@ resource "talos_machine_configuration_apply" "talos_worker_mc_apply" {
 
 # You only need to bootstrap 1 control node, we pick the first one
 resource "talos_machine_bootstrap" "talos_bootstrap" {
+    # Bootstrap referenced only the node's IP and the secrets, so nothing ordered it
+    # after the control plane was actually configured — it worked on graph luck.
+    depends_on = [
+        talos_machine_configuration_apply.talos_control_mc_apply
+    ]
     node                 = local.primary_control_node_ip
     client_configuration = talos_machine_secrets.talos_secrets.client_configuration
 }
@@ -318,4 +349,26 @@ resource "talos_cluster_kubeconfig" "talos_kubeconfig" {
     ]
     client_configuration = talos_machine_secrets.talos_secrets.client_configuration
     node                 = local.primary_control_node_ip
+}
+
+# Talos hands over the kubeconfig as soon as bootstrap finishes, well before the API is
+# serving — a plain apply can return credentials that answer "connection refused". This
+# blocks until the cluster is actually healthy so the outputs are usable on return.
+data "talos_cluster_health" "cluster_health" {
+    count = var.wait_for_cluster_health ? 1 : 0
+    depends_on = [
+        talos_machine_configuration_apply.talos_worker_mc_apply,
+        talos_machine_bootstrap.talos_bootstrap
+    ]
+    client_configuration = talos_machine_secrets.talos_secrets.client_configuration
+    control_plane_nodes  = local.control_node_ips
+    worker_nodes         = local.worker_node_ips
+    # The control node addresses, not var.talos_cluster_endpoint: Talos documents that a
+    # VIP must not be used as a Talos API endpoint, since it depends on etcd health. The
+    # consequence is that this never probes the VIP itself — see the README.
+    endpoints            = local.control_node_ips
+    skip_kubernetes_checks = var.cluster_health_skip_kubernetes_checks
+    timeouts = {
+        read = var.cluster_health_timeout
+    }
 }

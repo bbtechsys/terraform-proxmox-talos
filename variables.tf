@@ -148,6 +148,39 @@ variable "talos_cluster_name" {
     type        = string
 }
 
+variable "wait_for_cluster_health" {
+    # talos_cluster_kubeconfig returns as soon as bootstrap completes, which is before
+    # kube-apiserver is serving — and with a VIP, before the endpoint address even
+    # exists. Turning this on closes that gap, at a real cost: the health check is a
+    # data source, so it is re-read on every refresh and plan, not only on create. A
+    # cluster that is temporarily degraded (a node down for maintenance, a control node
+    # mid-reboot) will then fail `terraform plan` until it recovers. Off by default for
+    # that reason; turn it on for first provisioning and CI, where the guarantee matters
+    # more than being able to plan against a sick cluster.
+    description = "Wait for the cluster to become healthy before apply completes, so the kubeconfig output is usable when Terraform returns. Note that this is re-checked on every plan, so a degraded cluster will fail planning"
+    type        = bool
+    default     = false
+    nullable    = false
+}
+
+variable "cluster_health_skip_kubernetes_checks" {
+    # Needed by any cluster that disables the built-in CNI (cluster.network.cni.name =
+    # "none") to install its own — nodes stay NotReady until that CNI is deployed, which
+    # happens after Terraform is done, so the Kubernetes checks would never pass.
+    description = "Skip the Kubernetes checks in the health wait, keeping only the etcd and boot checks. Required if you disable the built-in CNI"
+    type        = bool
+    default     = false
+    nullable    = false
+}
+
+variable "cluster_health_timeout" {
+    # Null uses the provider default. A 5-node cluster took ~4.5 minutes to go healthy,
+    # so larger clusters or slow storage can need more.
+    description = "How long to wait for the cluster to become healthy, as a duration such as \"20m\". Null uses the provider default"
+    type        = string
+    default     = null
+}
+
 variable "talos_cluster_endpoint" {
     # When null, the endpoint defaults to https://<first control node IP>:6443,
     # which is a single point of failure. Set this to a shared VIP or a
@@ -157,6 +190,17 @@ variable "talos_cluster_endpoint" {
     description = "Kubernetes API cluster endpoint (e.g. https://<vip>:6443). Defaults to the first control node's IP."
     type        = string
     default     = null
+
+    validation {
+        # "" is allowed and means "use the default", which is how coalesce below treats
+        # it — consumers wire this from their own optional variables. A port is
+        # deliberately not required: 443 is legitimate behind a load balancer. A single
+        # trailing slash is allowed, since that is how a kubeconfig writes a server URL.
+        # Rejected: no scheme, embedded whitespace (which coalesce does NOT treat as
+        # empty, unlike ""), a path, a query string, or a fragment.
+        condition     = var.talos_cluster_endpoint == null || var.talos_cluster_endpoint == "" || can(regex("^https://[^/?#[:space:]]+/?$", var.talos_cluster_endpoint))
+        error_message = "talos_cluster_endpoint must be an https:// URL with no path, query or fragment, for example \"https://10.0.0.10:6443\". Talos assumes port 443 when none is given, so a port is usually wanted."
+    }
 }
 
 variable "proxmox_control_pool_id" {

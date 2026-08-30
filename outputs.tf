@@ -7,6 +7,7 @@ output "talos_config" {
 }
 
 output "kubeconfig" {
+    depends_on  = [data.talos_cluster_health.cluster_health]
     description = "Kubeconfig file"
     value       = talos_cluster_kubeconfig.talos_kubeconfig.kubeconfig_raw
     sensitive   = true
