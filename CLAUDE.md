@@ -33,15 +33,22 @@ Ordering is entirely implicit via resource references; there is one explicit `de
 
 ### Two things that constrain most changes
 
-**IP discovery depends on the QEMU guest agent and DHCP.** Node IPs are read as `proxmox_virtual_environment_vm.…[key].ipv4_addresses[7][0]` — index 7 is the position of Talos's primary NIC in the guest-agent interface list. There is no static-IP support; the intended pattern is to pin addresses in DHCP by MAC using `var.control_plane_mac_addresses` / `var.worker_mac_addresses`. Consequently:
-- The Talos schematic **must** include the `qemu-guest-agent` extension (the default `talos_schematic_id` does), or the apply hangs/fails with no IPs.
-- Anything touching networking (extra NICs, VLAN changes) can shift that `[7]` index.
+**IP discovery defaults to the QEMU guest agent.** `local.control_node_ip` / `local.worker_node_ip` resolve each node to `var.<control|worker>_node_addresses[name]` when declared, otherwise to `local.*_node_discovered_ip`, which walks `network_interface_names` and takes the first interface reporting a routable IPv4 — skipping loopback, link-local, and CNI interfaces by name prefix. It deliberately does **not** index a fixed position: the agent lists Talos's dummy interfaces (bond0, dummy0, teql0, tunl0, sit0, ip6tnl0) before the real NIC, which is why `[7]` used to work, and that count is not a contract. It takes the interface's *first* address so a Talos VIP, a second address on the same NIC, is not picked up.
 
-**The cluster endpoint is a single point of failure by design.** `cluster_endpoint` for both machine configurations is `https://${local.primary_control_node_ip}:6443`, where the primary is `keys(var.control_nodes)[0]`. There is no VIP or load balancer. Two `TODO` comments in `main.tf` mark this as a known limitation — if adding an override, it must be a new optional variable that defaults to current behavior.
+Declaring an address also sets `agent.wait_for_ip.disabled` for that VM. On the default `metal` platform it does not *assign* the address — the node must already answer there (a DHCP reservation), because machine config is delivered over the network. With `var.talos_platform = "nocloud"` the module attaches a Proxmox-generated cloud-init drive (`initialization.ip_config`, built from `var.node_network`), so Talos configures the address at boot and no DHCP is needed at all; this is verified working, with `talosctl get addressspecs --namespace network-config` reporting `platform/eth0/…` rather than `dhcp4/…`. Note the nocloud image names the NIC `eth0` where metal uses `ens18`, and that switching platform changes the image file name and therefore replaces every VM. Everything below applies to nodes left to discovery, which is still the default:
+- The Talos schematic **must** include the `qemu-guest-agent` extension (the default `talos_schematic_id` does), or the apply hangs/fails with no IPs.
+- Extra NICs or VLANs change what the agent reports; discovery picks the first routable non-CNI interface, so an added NIC that comes up first would win.
+- A Talos VIP is a second address on the same NIC. Verified on a live cluster: the holder reports `['10.32.1.234', '10.32.1.88']`, node address first — which is why discovery takes `[0]` and not a scan.
+
+**The cluster endpoint defaults to a single point of failure.** `local.resolved_cluster_endpoint` is `coalesce(var.talos_cluster_endpoint, "https://${local.primary_control_node_ip}:6443")`, where the primary is `keys(var.control_nodes)[0]`. Left unset, both machine configurations point at that one node, exactly as before the override existed. `var.talos_cluster_endpoint` takes a VIP or load-balancer address instead.
+
+Note that a Talos VIP interacts badly with the IP discovery above: it is a second address on the same NIC, so the guest agent reports it and `ipv4_addresses[7][0]` can return the VIP on whichever node currently holds it — which would feed the VIP into `talos_machine_bootstrap` and the `talos_config` output, which Talos forbids. Nothing gates apply on cluster health either, so with a VIP the emitted kubeconfig may point at an address that is not answering yet. The README documents both caveats; see the open issues before extending this.
 
 ### Machine config patching
 
-Users customize Talos via `var.control_machine_config_patches` / `var.worker_machine_config_patches` (lists of YAML strings). Both default to a patch setting `machine.install.disk = /dev/vda`, which matches the `virtio0` boot disk — a user supplying their own patch list **replaces** that default and must re-include the install disk. Worker extra disks (`var.worker_extra_disks`) are attached via a `dynamic "disk"` block starting at `virtio1` (`interface = "virtio${disk.key+1}"`), so they never collide with the boot disk.
+Users customize Talos via `var.control_machine_config_patches` / `var.worker_machine_config_patches` (lists of YAML strings). Both default to a patch setting `machine.install.disk = /dev/vda`, which matches the `virtio0` boot disk — a user supplying their own patch list **replaces** that default and must re-include the install disk. Both are `nullable = false`, which matters: they are consumed through `concat()`, and `concat` errors on a null argument.
+
+`var.control_machine_config_patches_by_node` / `var.worker_machine_config_patches_by_node` are maps keyed by node name, appended *after* the shared lists so a node can override shared values. A key that matches no node is silently ignored (`lookup(..., [])`). Worker extra disks (`var.worker_extra_disks`) are attached via a `dynamic "disk"` block starting at `virtio1` (`interface = "virtio${disk.key+1}"`), so they never collide with the boot disk.
 
 ### Provider resource naming
 
@@ -58,7 +65,7 @@ and incompatible resource (14 attributes vs 40). Do not "modernize" it.
 
 `talos_image` was renamed *and* re-keyed in 1.0.0, which forces replacement of every VM for
 anyone upgrading in place. The deliberate call was to keep the module clean for new users and
-document the hazard in `UPGRADE-1.0.md` rather than carry a compatibility shim. Two facts that
+document the hazard in a versioned upgrade guide rather than carry a compatibility shim. Two facts that
 guide belongs on: `terraform state mv` cannot move between resource types, and a single
 `moved` block can cross both the type change and the re-key (verified). When you next make a
 breaking change here, add an `UPGRADE-<version>.md`, link it from the README with an

@@ -20,6 +20,36 @@ variable "talos_image_upload_timeout" {
     default     = 600
 }
 
+variable "talos_platform" {
+    # "metal" boots the plain disk image and gets its address from DHCP (or from a
+    # config patch applied later). "nocloud" boots the Image Factory's nocloud image,
+    # which reads networking from the cloud-init drive Proxmox generates — the only way
+    # to give a node a static address before Terraform first talks to it. Pair it with
+    # node_network and control_node_addresses / worker_node_addresses.
+    description = "Talos Image Factory platform: \"metal\" (default) or \"nocloud\" for cloud-init network configuration"
+    type        = string
+    default     = "metal"
+    nullable    = false
+
+    validation {
+        condition     = contains(["metal", "nocloud"], var.talos_platform)
+        error_message = "talos_platform must be \"metal\" or \"nocloud\"."
+    }
+}
+
+
+variable "node_network" {
+    # Applied to every node that has an entry in control_node_addresses or
+    # worker_node_addresses. Only used when talos_platform is "nocloud".
+    description = "Static network settings for nodes with a declared address, written to their cloud-init network config"
+    type = object({
+        prefix_length = number
+        gateway       = string
+        nameservers   = optional(list(string), [])
+    })
+    default = null
+}
+
 variable "proxmox_image_datastore" {
     description = "Datastore to put the VM hard drive images"
     type        = string
@@ -79,6 +109,26 @@ variable "proxmox_network_bridge" {
   default = "vmbr0"
 }
 
+variable "control_node_addresses" {
+    # Set this when nodes are statically addressed rather than served by DHCP. The module
+    # then uses these addresses instead of discovering them through the QEMU guest agent,
+    # and does not wait for the agent to report an IP before continuing.
+    # You must still configure the address inside Talos itself, via a config patch — see
+    # the static addressing section of the README.
+    description = "Map of control node name to its IP address, for nodes that are not assigned an address by DHCP"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_node_addresses" {
+    # See control_node_addresses.
+    description = "Map of worker node name to its IP address, for nodes that are not assigned an address by DHCP"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
 variable "control_plane_mac_addresses" {
     description = "Map of control plane node names to MAC addresses for static IP assignment via DHCP"
     type        = map(string)
@@ -96,6 +146,17 @@ variable "worker_mac_addresses" {
 variable "talos_cluster_name" {
     description = "Name of the Talos cluster"
     type        = string
+}
+
+variable "talos_cluster_endpoint" {
+    # When null, the endpoint defaults to https://<first control node IP>:6443,
+    # which is a single point of failure. Set this to a shared VIP or a
+    # load-balancer/proxy address (e.g. https://10.0.0.10:6443) for an HA endpoint.
+    # If using a Talos shared VIP, also define it via control_machine_config_patches
+    # or control_machine_config_patches_by_node (machine.network.interfaces[].vip.ip).
+    description = "Kubernetes API cluster endpoint (e.g. https://<vip>:6443). Defaults to the first control node's IP."
+    type        = string
+    default     = null
 }
 
 variable "proxmox_control_pool_id" {
@@ -163,6 +224,7 @@ machine:
     disk: "/dev/vda"
 EOT
     ]
+    nullable    = false
 }
 
 variable "worker_machine_config_patches" {
@@ -175,6 +237,35 @@ machine:
     disk: "/dev/vda"
 EOT
     ]
+    nullable    = false
+}
+
+variable "control_machine_config_patches_by_node" {
+    # Patches here are appended AFTER control_machine_config_patches, so they can
+    # override shared values. Use for per-node settings such as hostnames, node
+    # labels or kubelet args. Do NOT set static addresses here: node IPs are
+    # discovered through the QEMU guest agent, so a static-address patch can move a
+    # node out from under that discovery. Pin a mac_address + DHCP reservation instead.
+    # Example:
+    # control_machine_config_patches_by_node = {
+    #   "talos-control-0" = [yamlencode({ machine = { network = { hostname = "cp0" } } })]
+    # }
+    description = "Map of control node name to a list of extra YAML patches applied after the shared control patches"
+    type        = map(list(string))
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_machine_config_patches_by_node" {
+    # Patches here are appended AFTER worker_machine_config_patches, so they can
+    # override shared values. Use for per-node settings such as hostnames, node
+    # labels or kubelet args. Do NOT set static addresses here: node IPs are
+    # discovered through the QEMU guest agent, so a static-address patch can move a
+    # node out from under that discovery. Pin a mac_address + DHCP reservation instead.
+    description = "Map of worker node name to a list of extra YAML patches applied after the shared worker patches"
+    type        = map(list(string))
+    default     = {}
+    nullable    = false
 }
 
 variable "worker_extra_disks" {
