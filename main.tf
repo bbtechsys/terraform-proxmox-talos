@@ -208,12 +208,12 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
         }
     }
     cpu {
-        cores = var.proxmox_worker_vm_cores
+        cores = lookup(var.worker_vm_cores_by_node, each.key, var.proxmox_worker_vm_cores)
         type  = var.proxmox_vm_type
     }
     memory {
-        dedicated = var.proxmox_worker_vm_memory
-        floating  = var.proxmox_worker_vm_memory
+        dedicated = lookup(var.worker_vm_memory_by_node, each.key, var.proxmox_worker_vm_memory)
+        floating  = lookup(var.worker_vm_memory_by_node, each.key, var.proxmox_worker_vm_memory)
     }
     disk {
         datastore_id = var.proxmox_image_datastore
@@ -221,7 +221,7 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
         interface    = "virtio0"
         iothread     = true
         discard      = "on"
-        size         = var.proxmox_worker_vm_disk_size
+        size         = lookup(var.worker_vm_disk_size_by_node, each.key, var.proxmox_worker_vm_disk_size)
     }
     network_device {
         vlan_id     = var.proxmox_network_vlan_id
