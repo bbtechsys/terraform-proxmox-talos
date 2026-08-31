@@ -98,6 +98,37 @@ variable "proxmox_worker_vm_disk_size" {
     default     = 100
 }
 
+variable "worker_vm_cores_by_node" {
+    # Overrides proxmox_worker_vm_cores for the named workers. Use when the
+    # Proxmox hosts are not identical and you want the bigger host to carry a
+    # bigger worker, rather than carrying more of them — that keeps one worker
+    # per host, so losing any single host costs exactly one worker.
+    # Example:
+    # worker_vm_cores_by_node = { "talos-worker-0" = 8 }
+    description = "Map of worker node name to CPU core count, overriding proxmox_worker_vm_cores for that node"
+    type        = map(number)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_vm_memory_by_node" {
+    # See worker_vm_cores_by_node. Sets both dedicated and floating memory, the
+    # same as proxmox_worker_vm_memory does.
+    description = "Map of worker node name to memory in MB, overriding proxmox_worker_vm_memory for that node"
+    type        = map(number)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_vm_disk_size_by_node" {
+    # See worker_vm_cores_by_node. Note that shrinking a disk is not supported
+    # by Proxmox, so lowering this for an existing node will fail the apply.
+    description = "Map of worker node name to boot disk size in GB, overriding proxmox_worker_vm_disk_size for that node"
+    type        = map(number)
+    default     = {}
+    nullable    = false
+}
+
 variable "proxmox_network_vlan_id" {
     description = "Proxmox network VLAN ID"
     type        = number

@@ -336,6 +336,44 @@ Both default to `{}`, so they are backward compatible.
 > strand the node). For predictable IPs, pin a `mac_address` and use a DHCP
 > reservation instead.
 
+## Per-node VM sizing
+
+`proxmox_worker_vm_cores`, `proxmox_worker_vm_memory` and `proxmox_worker_vm_disk_size` size
+every worker the same. When the Proxmox hosts are not identical, override them for individual
+workers with `worker_vm_cores_by_node`, `worker_vm_memory_by_node` and
+`worker_vm_disk_size_by_node`:
+
+```terraform
+  worker_nodes = {
+    "kirkwood-worker-0" = "pve1"   # the large host
+    "kirkwood-worker-1" = "pve2"
+    "kirkwood-worker-2" = "pve3"
+  }
+
+  proxmox_worker_vm_cores  = 4      # the default for workers not named below
+  proxmox_worker_vm_memory = 8192
+
+  worker_vm_cores_by_node  = { "kirkwood-worker-0" = 8 }
+  worker_vm_memory_by_node = { "kirkwood-worker-0" = 16384 }
+```
+
+All three default to `{}`, so they are backward compatible.
+
+The reason to reach for this rather than simply putting *more* workers on the larger host is
+the failure domain. Two workers on `pve1` means losing `pve1` costs half your worker capacity;
+one larger worker on `pve1` means losing any single host costs exactly one worker, whichever
+host it is.
+
+Two caveats:
+
+- **Proxmox cannot shrink a disk.** Lowering `worker_vm_disk_size_by_node` for an existing node
+  fails the apply. Raising it is fine.
+- **Changing cores or memory restarts the VM**, one worker at a time. On a cluster with
+  workloads that tolerate a node draining this is routine; it is still a restart.
+
+There is deliberately no control-plane equivalent. Control nodes should be identical — an etcd
+quorum whose members have different resources fails in ways that are tedious to reason about.
+
 Check out our [blog post](https://bbtechsystems.com/blog/k8s-with-pxe-tf/) for more details on using this module.
 
 Copyright (c) 2024 BB Tech Systems LLC
