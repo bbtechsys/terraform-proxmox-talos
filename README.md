@@ -336,6 +336,93 @@ Both default to `{}`, so they are backward compatible.
 > strand the node). For predictable IPs, pin a `mac_address` and use a DHCP
 > reservation instead.
 
+## A second interface for a storage network
+
+Nodes get one interface by default. `node_additional_network` adds a second, for a network the
+nodes must be **on** rather than route to:
+
+```terraform
+  talos_platform = "nocloud"
+
+  node_additional_network = {
+    bridge        = "vmbr1"   # the 10G bridge carrying the storage VLAN
+    vlan_id       = 12
+    mtu           = 9000
+    prefix_length = 24
+  }
+
+  control_node_additional_addresses = {
+    "kirkwood-control-0" = "10.32.12.81"
+  }
+  worker_node_additional_addresses = {
+    "kirkwood-worker-0" = "10.32.12.84"
+  }
+```
+
+The second interface becomes `net1` and gets no gateway — the default route stays on the primary.
+Both default to unset, so this is backward compatible.
+
+### Why this exists
+
+Ceph is the case that motivated it. Its public network is commonly a separate VLAN on separate
+NICs, and reaching it through a router fails in a way that costs an afternoon to diagnose.
+
+If the storage hosts are dual-homed — on the storage VLAN *and* the node VLAN — the path is
+asymmetric: requests go out through the router, replies come straight back on the node VLAN. A
+stateful firewall then only ever sees one direction, so its state entry never establishes and is
+reaped, and subsequent packets are dropped as a state violation.
+
+What that looks like is not "the network is down". Short operations succeed, so volumes provision
+and PVCs bind; long-lived connections die after about a minute. The result is a pod stuck in
+`ContainerCreating` with `NodeStageVolume` logging a slow GRPC request every 30 seconds, and
+`rbd: encountered watch error: -107` in the node's kernel log. Putting the node directly on the
+storage network removes the router, and with it the whole class of problem.
+
+**Match the segment's MTU.** These interfaces are on-link, so there is no path MTU discovery to
+rescue a mismatch: if the other hosts send 9000-byte frames and this interface is 1500, those
+frames are simply dropped.
+
+> Requires `talos_platform = "nocloud"`, since the address reaches the node through the cloud-init
+> drive. Setting the address maps without `node_additional_network` fails at plan.
+
+## Per-node VM sizing
+
+`proxmox_worker_vm_cores`, `proxmox_worker_vm_memory` and `proxmox_worker_vm_disk_size` size
+every worker the same. When the Proxmox hosts are not identical, override them for individual
+workers with `worker_vm_cores_by_node`, `worker_vm_memory_by_node` and
+`worker_vm_disk_size_by_node`:
+
+```terraform
+  worker_nodes = {
+    "kirkwood-worker-0" = "pve1"   # the large host
+    "kirkwood-worker-1" = "pve2"
+    "kirkwood-worker-2" = "pve3"
+  }
+
+  proxmox_worker_vm_cores  = 4      # the default for workers not named below
+  proxmox_worker_vm_memory = 8192
+
+  worker_vm_cores_by_node  = { "kirkwood-worker-0" = 8 }
+  worker_vm_memory_by_node = { "kirkwood-worker-0" = 16384 }
+```
+
+All three default to `{}`, so they are backward compatible.
+
+The reason to reach for this rather than simply putting *more* workers on the larger host is
+the failure domain. Two workers on `pve1` means losing `pve1` costs half your worker capacity;
+one larger worker on `pve1` means losing any single host costs exactly one worker, whichever
+host it is.
+
+Two caveats:
+
+- **Proxmox cannot shrink a disk.** Lowering `worker_vm_disk_size_by_node` for an existing node
+  fails the apply. Raising it is fine.
+- **Changing cores or memory restarts the VM**, one worker at a time. On a cluster with
+  workloads that tolerate a node draining this is routine; it is still a restart.
+
+There is deliberately no control-plane equivalent. Control nodes should be identical — an etcd
+quorum whose members have different resources fails in ways that are tedious to reason about.
+
 Check out our [blog post](https://bbtechsystems.com/blog/k8s-with-pxe-tf/) for more details on using this module.
 
 Copyright (c) 2024 BB Tech Systems LLC

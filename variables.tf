@@ -98,6 +98,37 @@ variable "proxmox_worker_vm_disk_size" {
     default     = 100
 }
 
+variable "worker_vm_cores_by_node" {
+    # Overrides proxmox_worker_vm_cores for the named workers. Use when the
+    # Proxmox hosts are not identical and you want the bigger host to carry a
+    # bigger worker, rather than carrying more of them — that keeps one worker
+    # per host, so losing any single host costs exactly one worker.
+    # Example:
+    # worker_vm_cores_by_node = { "talos-worker-0" = 8 }
+    description = "Map of worker node name to CPU core count, overriding proxmox_worker_vm_cores for that node"
+    type        = map(number)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_vm_memory_by_node" {
+    # See worker_vm_cores_by_node. Sets both dedicated and floating memory, the
+    # same as proxmox_worker_vm_memory does.
+    description = "Map of worker node name to memory in MB, overriding proxmox_worker_vm_memory for that node"
+    type        = map(number)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_vm_disk_size_by_node" {
+    # See worker_vm_cores_by_node. Note that shrinking a disk is not supported
+    # by Proxmox, so lowering this for an existing node will fail the apply.
+    description = "Map of worker node name to boot disk size in GB, overriding proxmox_worker_vm_disk_size for that node"
+    type        = map(number)
+    default     = {}
+    nullable    = false
+}
+
 variable "proxmox_network_vlan_id" {
     description = "Proxmox network VLAN ID"
     type        = number
@@ -107,6 +138,46 @@ variable "proxmox_network_bridge" {
   description = "Proxmox network Bridge"
   type = string
   default = "vmbr0"
+}
+
+variable "node_additional_network" {
+    # A second interface on every node, for a network the nodes must reach
+    # directly rather than through a router. The case this exists for is Ceph:
+    # its public network is often a separate VLAN on separate NICs, and reaching
+    # it through a router breaks in a way that is tedious to diagnose --
+    # long-lived connections die on the firewall's state table while short ones
+    # succeed, so volumes provision but never mount.
+    #
+    # Only used when talos_platform is "nocloud", since the address has to reach
+    # the node through the cloud-init drive. Leave null for a single-homed node.
+    description = "A second network interface added to every node, for a storage or other network the nodes must be on directly"
+    type = object({
+        bridge        = string
+        vlan_id       = optional(number)
+        # Match the segment. An MTU below what the other hosts send at means
+        # their frames are dropped on arrival, on-link, with no PMTU discovery
+        # to save you.
+        mtu           = optional(number)
+        prefix_length = number
+    })
+    default = null
+}
+
+variable "control_node_additional_addresses" {
+    # No gateway: this interface is for reaching one directly-attached network.
+    # The default route stays on the primary interface.
+    description = "Map of control node name to its address on node_additional_network"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_node_additional_addresses" {
+    # See control_node_additional_addresses.
+    description = "Map of worker node name to its address on node_additional_network"
+    type        = map(string)
+    default     = {}
+    nullable    = false
 }
 
 variable "control_node_addresses" {
