@@ -26,7 +26,19 @@ being the usual case.
 
 It becomes `net1`, so the primary interface stays `net0` and any config patch selecting on
 `link.driver == "virtio_net"` — including the `LinkAliasConfig` in the VIP example — now matches
-**two** links rather than one. If you use a VIP, narrow that selector before upgrading.
+**two** links rather than one. If you use a VIP, narrow that selector before upgrading:
+
+```terraform
+  selector = { match = "link.bus_path == \"0000:00:12.0\"" }
+```
+
+Proxmox puts `net0` at PCI slot `0x12` and `net1` at `0x13`. Two things about that field name,
+both of which cost an apply cycle to find:
+
+- It is `bus_path`, not `busPath`. Selectors are evaluated against the protobuf descriptor, so
+  field names are snake_case even though `talosctl get links -o yaml` prints them camelCase.
+- There is no `link.name`. The interface name is the resource ID, not part of the spec, so it
+  cannot be selected on at all.
 
 All three variables default to unset, so existing configurations are unaffected.
 

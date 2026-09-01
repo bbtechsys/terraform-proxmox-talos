@@ -281,6 +281,19 @@ Verified on a live 3-control-node cluster: Talos logs `enabled shared IP {"opera
 endpoint. Note the alias resolves to the real link, so `link: net0` is what you write and
 `ens18` (or `eth0`) is what Talos binds.
 
+> **The `virtio_net` selector above only works while nodes have one interface.** Add
+> `node_additional_network` and the driver matches two links, which `Layer2VIPConfig` rejects.
+> Select on the PCI slot instead — Proxmox puts `net0` at `0x12` and `net1` at `0x13`:
+>
+> ```terraform
+> selector = { match = "link.bus_path == \"0000:00:12.0\"" }
+> ```
+>
+> Two things about that field name, both of which cost an apply cycle to discover. It is
+> `bus_path`, not `busPath`: selectors are evaluated against the protobuf descriptor, so names are
+> snake_case even though `talosctl get links -o yaml` prints them camelCase. And there is no
+> `link.name` at all — the interface name is the resource ID, not part of the spec.
+
 ### Before you use a VIP
 
 A Talos VIP is not a load balancer. It is a shared address claimed by one control node at
