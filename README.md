@@ -365,10 +365,10 @@ nodes must be **on** rather than route to:
   }
 
   control_node_additional_addresses = {
-    "kirkwood-control-0" = "10.32.12.81"
+    "example-control-0" = "10.32.12.81"
   }
   worker_node_additional_addresses = {
-    "kirkwood-worker-0" = "10.32.12.84"
+    "example-worker-0" = "10.32.12.84"
   }
 ```
 
@@ -407,16 +407,16 @@ workers with `worker_vm_cores_by_node`, `worker_vm_memory_by_node` and
 
 ```terraform
   worker_nodes = {
-    "kirkwood-worker-0" = "pve1"   # the large host
-    "kirkwood-worker-1" = "pve2"
-    "kirkwood-worker-2" = "pve3"
+    "example-worker-0" = "pve1"   # the large host
+    "example-worker-1" = "pve2"
+    "example-worker-2" = "pve3"
   }
 
   proxmox_worker_vm_cores  = 4      # the default for workers not named below
   proxmox_worker_vm_memory = 8192
 
-  worker_vm_cores_by_node  = { "kirkwood-worker-0" = 8 }
-  worker_vm_memory_by_node = { "kirkwood-worker-0" = 16384 }
+  worker_vm_cores_by_node  = { "example-worker-0" = 8 }
+  worker_vm_memory_by_node = { "example-worker-0" = 16384 }
 ```
 
 All three default to `{}`, so they are backward compatible.

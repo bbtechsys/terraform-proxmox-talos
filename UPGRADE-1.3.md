@@ -21,7 +21,7 @@ being the usual case.
     prefix_length = 24
   }
 
-  worker_node_additional_addresses = { "kirkwood-worker-0" = "10.32.12.84" }
+  worker_node_additional_addresses = { "example-worker-0" = "10.32.12.84" }
 ```
 
 It becomes `net1`, so the primary interface stays `net0` and any config patch selecting on

@@ -22,8 +22,8 @@ for the nodes it names:
   proxmox_worker_vm_cores  = 4      # applies to workers not named below
   proxmox_worker_vm_memory = 8192
 
-  worker_vm_cores_by_node  = { "kirkwood-worker-0" = 8 }
-  worker_vm_memory_by_node = { "kirkwood-worker-0" = 16384 }
+  worker_vm_cores_by_node  = { "example-worker-0" = 8 }
+  worker_vm_memory_by_node = { "example-worker-0" = 16384 }
 ```
 
 All three default to `{}`. A worker with no entry keeps the flat value, which is what every
