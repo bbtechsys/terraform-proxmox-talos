@@ -68,9 +68,17 @@ anyone upgrading in place. The deliberate call was to keep the module clean for 
 document the hazard in a versioned upgrade guide rather than carry a compatibility shim. Two facts that
 guide belongs on: `terraform state mv` cannot move between resource types, and a single
 `moved` block can cross both the type change and the re-key (verified). When you next make a
-breaking change here, add an `UPGRADE-<version>.md`, link it from the README with an
-absolute GitHub URL (relative links do not resolve on the Terraform Registry), and bump the
-major version.
+breaking change here, add an entry to `CHANGELOG.md` and bump the major version.
+
+Every release gets a `CHANGELOG.md` entry, with anything that can bite under a **Watch out**
+heading. That is usually the whole job.
+
+Write a separate `UPGRADE-<version>.md` **only** when an upgrade needs step-by-step instructions —
+state surgery, `moved` blocks, a forced replacement to work around. 1.0.0 is the bar and currently
+the only one. Do not write one for an additive or non-breaking release: doing that produced a new
+root-level file every version and buried the content where neither the Terraform Registry nor the
+GitHub releases page surfaces it. Link any such guide from its changelog entry and the README with
+an absolute GitHub URL, since relative links do not resolve on the Registry.
 
 ## References
 

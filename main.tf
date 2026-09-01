@@ -171,6 +171,17 @@ resource "proxmox_virtual_environment_vm" "talos_control_vm" {
         bridge      = var.proxmox_network_bridge
         mac_address = lookup(var.control_plane_mac_addresses, each.key, null)
     }
+
+    # Second interface, for a network the node must reach directly rather than
+    # through a router. Declared after the primary so it becomes net1.
+    dynamic "network_device" {
+        for_each = var.node_additional_network == null ? [] : [var.node_additional_network]
+        content {
+            bridge  = network_device.value.bridge
+            vlan_id = network_device.value.vlan_id
+            mtu     = network_device.value.mtu
+        }
+    }
     dynamic "initialization" {
         for_each = contains(keys(local.cloud_init_nodes), each.key) ? [each.key] : []
         content {
@@ -181,6 +192,16 @@ resource "proxmox_virtual_environment_vm" "talos_control_vm" {
                 ipv4 {
                     address = "${local.cloud_init_nodes[initialization.value]}/${var.node_network.prefix_length}"
                     gateway = var.node_network.gateway
+                }
+            }
+            # ip_config blocks map positionally to network devices, so this is
+            # net1. No gateway: the default route belongs to the primary NIC.
+            dynamic "ip_config" {
+                for_each = lookup(var.control_node_additional_addresses, each.key, null) == null ? [] : [1]
+                content {
+                    ipv4 {
+                        address = "${var.control_node_additional_addresses[each.key]}/${var.node_additional_network.prefix_length}"
+                    }
                 }
             }
             dynamic "dns" {
@@ -228,6 +249,17 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
         bridge      = var.proxmox_network_bridge
         mac_address = lookup(var.worker_mac_addresses, each.key, null)
     }
+
+    # Second interface, for a network the node must reach directly rather than
+    # through a router. Declared after the primary so it becomes net1.
+    dynamic "network_device" {
+        for_each = var.node_additional_network == null ? [] : [var.node_additional_network]
+        content {
+            bridge  = network_device.value.bridge
+            vlan_id = network_device.value.vlan_id
+            mtu     = network_device.value.mtu
+        }
+    }
     dynamic "disk" {
         for_each = lookup(var.worker_extra_disks, each.key, [])
         content {
@@ -251,6 +283,16 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
                 ipv4 {
                     address = "${local.cloud_init_nodes[initialization.value]}/${var.node_network.prefix_length}"
                     gateway = var.node_network.gateway
+                }
+            }
+            # ip_config blocks map positionally to network devices, so this is
+            # net1. No gateway: the default route belongs to the primary NIC.
+            dynamic "ip_config" {
+                for_each = lookup(var.worker_node_additional_addresses, each.key, null) == null ? [] : [1]
+                content {
+                    ipv4 {
+                        address = "${var.worker_node_additional_addresses[each.key]}/${var.node_additional_network.prefix_length}"
+                    }
                 }
             }
             dynamic "dns" {

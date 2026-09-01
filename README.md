@@ -62,16 +62,14 @@ output "kubeconfig" {
 
 ## Upgrading
 
-- **1.1.x → 1.2.0** — no state moves or replacements, but apply now waits for the cluster to be
-  healthy, and two previously silent misconfigurations now fail at plan. See the
-  [1.2 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.2.md).
-- **1.0.x → 1.1.0** — additive; no state moves and no forced replacements. Two behavior notes
-  worth reading first, in the
-  [1.1 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.1.md).
-- **0.1.x → 1.0.0** — **destroys and recreates every VM** unless you add a `moved` block first.
-  Read the
-  [1.0 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.0.md)
-  before you run `terraform apply`.
+Every release is documented in
+[CHANGELOG.md](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/CHANGELOG.md),
+including anything that can bite — forced replacements, defaults that surprise, and behaviour that
+changed. Read the entries between your current version and the one you are moving to.
+
+The one to know about without looking: **0.1.x → 1.0.0 destroys and recreates every VM** unless you
+add a `moved` block first — that upgrade has its own
+[guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.0.md).
 
 ## The Talos boot image
 
@@ -281,6 +279,19 @@ Verified on a live 3-control-node cluster: Talos logs `enabled shared IP {"opera
 endpoint. Note the alias resolves to the real link, so `link: net0` is what you write and
 `ens18` (or `eth0`) is what Talos binds.
 
+> **The `virtio_net` selector above only works while nodes have one interface.** Add
+> `node_additional_network` and the driver matches two links, which `Layer2VIPConfig` rejects.
+> Select on the PCI slot instead — Proxmox puts `net0` at `0x12` and `net1` at `0x13`:
+>
+> ```terraform
+> selector = { match = "link.bus_path == \"0000:00:12.0\"" }
+> ```
+>
+> Two things about that field name, both of which cost an apply cycle to discover. It is
+> `bus_path`, not `busPath`: selectors are evaluated against the protobuf descriptor, so names are
+> snake_case even though `talosctl get links -o yaml` prints them camelCase. And there is no
+> `link.name` at all — the interface name is the resource ID, not part of the spec.
+
 ### Before you use a VIP
 
 A Talos VIP is not a load balancer. It is a shared address claimed by one control node at
@@ -336,6 +347,55 @@ Both default to `{}`, so they are backward compatible.
 > strand the node). For predictable IPs, pin a `mac_address` and use a DHCP
 > reservation instead.
 
+## A second interface for a storage network
+
+Nodes get one interface by default. `node_additional_network` adds a second, for a network the
+nodes must be **on** rather than route to:
+
+```terraform
+  talos_platform = "nocloud"
+
+  node_additional_network = {
+    bridge        = "vmbr1"   # the 10G bridge carrying the storage VLAN
+    vlan_id       = 12
+    mtu           = 9000
+    prefix_length = 24
+  }
+
+  control_node_additional_addresses = {
+    "example-control-0" = "10.32.12.81"
+  }
+  worker_node_additional_addresses = {
+    "example-worker-0" = "10.32.12.84"
+  }
+```
+
+The second interface becomes `net1` and gets no gateway — the default route stays on the primary.
+Both default to unset, so this is backward compatible.
+
+### Why this exists
+
+Ceph is the case that motivated it. Its public network is commonly a separate VLAN on separate
+NICs, and reaching it through a router fails in a way that costs an afternoon to diagnose.
+
+If the storage hosts are dual-homed — on the storage VLAN *and* the node VLAN — the path is
+asymmetric: requests go out through the router, replies come straight back on the node VLAN. A
+stateful firewall then only ever sees one direction, so its state entry never establishes and is
+reaped, and subsequent packets are dropped as a state violation.
+
+What that looks like is not "the network is down". Short operations succeed, so volumes provision
+and PVCs bind; long-lived connections die after about a minute. The result is a pod stuck in
+`ContainerCreating` with `NodeStageVolume` logging a slow GRPC request every 30 seconds, and
+`rbd: encountered watch error: -107` in the node's kernel log. Putting the node directly on the
+storage network removes the router, and with it the whole class of problem.
+
+**Match the segment's MTU.** These interfaces are on-link, so there is no path MTU discovery to
+rescue a mismatch: if the other hosts send 9000-byte frames and this interface is 1500, those
+frames are simply dropped.
+
+> Requires `talos_platform = "nocloud"`, since the address reaches the node through the cloud-init
+> drive. Setting the address maps without `node_additional_network` fails at plan.
+
 ## Per-node VM sizing
 
 `proxmox_worker_vm_cores`, `proxmox_worker_vm_memory` and `proxmox_worker_vm_disk_size` size
@@ -345,16 +405,16 @@ workers with `worker_vm_cores_by_node`, `worker_vm_memory_by_node` and
 
 ```terraform
   worker_nodes = {
-    "kirkwood-worker-0" = "pve1"   # the large host
-    "kirkwood-worker-1" = "pve2"
-    "kirkwood-worker-2" = "pve3"
+    "example-worker-0" = "pve1"   # the large host
+    "example-worker-1" = "pve2"
+    "example-worker-2" = "pve3"
   }
 
   proxmox_worker_vm_cores  = 4      # the default for workers not named below
   proxmox_worker_vm_memory = 8192
 
-  worker_vm_cores_by_node  = { "kirkwood-worker-0" = 8 }
-  worker_vm_memory_by_node = { "kirkwood-worker-0" = 16384 }
+  worker_vm_cores_by_node  = { "example-worker-0" = 8 }
+  worker_vm_memory_by_node = { "example-worker-0" = 16384 }
 ```
 
 All three default to `{}`, so they are backward compatible.

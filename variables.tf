@@ -140,6 +140,46 @@ variable "proxmox_network_bridge" {
   default = "vmbr0"
 }
 
+variable "node_additional_network" {
+    # A second interface on every node, for a network the nodes must reach
+    # directly rather than through a router. The case this exists for is Ceph:
+    # its public network is often a separate VLAN on separate NICs, and reaching
+    # it through a router breaks in a way that is tedious to diagnose --
+    # long-lived connections die on the firewall's state table while short ones
+    # succeed, so volumes provision but never mount.
+    #
+    # Only used when talos_platform is "nocloud", since the address has to reach
+    # the node through the cloud-init drive. Leave null for a single-homed node.
+    description = "A second network interface added to every node, for a storage or other network the nodes must be on directly"
+    type = object({
+        bridge        = string
+        vlan_id       = optional(number)
+        # Match the segment. An MTU below what the other hosts send at means
+        # their frames are dropped on arrival, on-link, with no PMTU discovery
+        # to save you.
+        mtu           = optional(number)
+        prefix_length = number
+    })
+    default = null
+}
+
+variable "control_node_additional_addresses" {
+    # No gateway: this interface is for reaching one directly-attached network.
+    # The default route stays on the primary interface.
+    description = "Map of control node name to its address on node_additional_network"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
+variable "worker_node_additional_addresses" {
+    # See control_node_additional_addresses.
+    description = "Map of worker node name to its address on node_additional_network"
+    type        = map(string)
+    default     = {}
+    nullable    = false
+}
+
 variable "control_node_addresses" {
     # Set this when nodes are statically addressed rather than served by DHCP. The module
     # then uses these addresses instead of discovering them through the QEMU guest agent,
