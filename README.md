@@ -62,16 +62,13 @@ output "kubeconfig" {
 
 ## Upgrading
 
-- **1.1.x → 1.2.0** — no state moves or replacements, but apply now waits for the cluster to be
-  healthy, and two previously silent misconfigurations now fail at plan. See the
-  [1.2 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.2.md).
-- **1.0.x → 1.1.0** — additive; no state moves and no forced replacements. Two behavior notes
-  worth reading first, in the
-  [1.1 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.1.md).
-- **0.1.x → 1.0.0** — **destroys and recreates every VM** unless you add a `moved` block first.
-  Read the
-  [1.0 Upgrade Guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.0.md)
-  before you run `terraform apply`.
+Every release is documented in
+[CHANGELOG.md](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/CHANGELOG.md),
+including anything that can bite — forced replacements, defaults that surprise, and behaviour that
+changed. Read the entries between your current version and the one you are moving to.
+
+The one to know about without looking: **0.1.x → 1.0.0 destroys and recreates every VM** unless you
+add a `moved` block first.
 
 ## The Talos boot image
 
