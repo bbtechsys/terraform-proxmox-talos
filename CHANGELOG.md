@@ -3,9 +3,9 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Anything that needs saying about a release is said here. Where a release can bite — a forced
-replacement, a default that surprises — it is called out under **Watch out** rather than left for
-someone to discover.
+Anything that needs saying about a release is said here, under **Watch out** where it can bite.
+An upgrade involved enough to need step-by-step instructions gets its own guide, linked from its
+entry; 1.0.0 is the only one so far.
 
 ## [Unreleased]
 
@@ -99,7 +99,9 @@ someone to discover.
 ### Watch out
 
 - **This upgrade destroys and recreates every VM unless you act**, because the image resource is
-  now keyed per host.
+  now keyed per host. This one needs more than a changelog entry — see
+  [UPGRADE-1.0.md](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.0.md)
+  for the `moved` block that avoids it.
 
 ## Earlier
 

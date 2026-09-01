@@ -68,7 +68,8 @@ including anything that can bite — forced replacements, defaults that surprise
 changed. Read the entries between your current version and the one you are moving to.
 
 The one to know about without looking: **0.1.x → 1.0.0 destroys and recreates every VM** unless you
-add a `moved` block first.
+add a `moved` block first — that upgrade has its own
+[guide](https://github.com/bbtechsys/terraform-proxmox-talos/blob/main/UPGRADE-1.0.md).
 
 ## The Talos boot image
 

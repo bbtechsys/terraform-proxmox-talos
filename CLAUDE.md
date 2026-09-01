@@ -70,11 +70,15 @@ guide belongs on: `terraform state mv` cannot move between resource types, and a
 `moved` block can cross both the type change and the re-key (verified). When you next make a
 breaking change here, add an entry to `CHANGELOG.md` and bump the major version.
 
-Release notes go in `CHANGELOG.md` and nowhere else. Do **not** create a per-version
-`UPGRADE-<version>.md`; that produced a new root-level file every release and buried the content
-where neither the Terraform Registry nor the GitHub releases page surfaces it. Anything that can
-bite goes under a **Watch out** heading in that release's entry. The README links to the changelog
-once, with an absolute GitHub URL, since relative links do not resolve on the Registry.
+Every release gets a `CHANGELOG.md` entry, with anything that can bite under a **Watch out**
+heading. That is usually the whole job.
+
+Write a separate `UPGRADE-<version>.md` **only** when an upgrade needs step-by-step instructions —
+state surgery, `moved` blocks, a forced replacement to work around. 1.0.0 is the bar and currently
+the only one. Do not write one for an additive or non-breaking release: doing that produced a new
+root-level file every version and buried the content where neither the Terraform Registry nor the
+GitHub releases page surfaces it. Link any such guide from its changelog entry and the README with
+an absolute GitHub URL, since relative links do not resolve on the Registry.
 
 ## References
 
