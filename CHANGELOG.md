@@ -9,6 +9,20 @@ entry; 1.0.0 is the only one so far.
 
 ## [Unreleased]
 
+## [1.4.0]
+
+### Added
+
+- `proxmox_network_mtu` — the MTU of the primary interface (`net0`). Left null, Proxmox gives a
+  VirtIO NIC the MTU of its bridge, so a node on a jumbo-frame bridge sends 9000-byte frames into
+  a VLAN the rest of which runs at 1500.
+
+### Watch out
+
+- **Changing it on a running VM replugs the NIC.** Proxmox hot-unplugs and re-adds the device
+  for an MTU change, so each node drops off the network briefly. Roll it one control node at a
+  time (`-target`), or etcd can lose quorum while all of them replug at once.
+
 ## [1.3.0]
 
 ### Added
