@@ -140,6 +140,15 @@ variable "proxmox_network_bridge" {
   default = "vmbr0"
 }
 
+variable "proxmox_network_mtu" {
+    # Proxmox gives a VirtIO NIC with no MTU the MTU of its bridge. On a
+    # jumbo-frame bridge that trunks a 1500 VLAN, the node then sends frames
+    # the rest of that VLAN drops. Set this to the VLAN's MTU in that case.
+    description = "MTU of the primary network interface (net0). Null inherits the bridge MTU"
+    type        = number
+    default     = null
+}
+
 variable "node_additional_network" {
     # A second interface on every node, for a network the nodes must reach
     # directly rather than through a router. The case this exists for is Ceph:

@@ -169,6 +169,7 @@ resource "proxmox_virtual_environment_vm" "talos_control_vm" {
     network_device {
         vlan_id     = var.proxmox_network_vlan_id
         bridge      = var.proxmox_network_bridge
+        mtu         = var.proxmox_network_mtu
         mac_address = lookup(var.control_plane_mac_addresses, each.key, null)
     }
 
@@ -247,6 +248,7 @@ resource "proxmox_virtual_environment_vm" "talos_worker_vm" {
     network_device {
         vlan_id     = var.proxmox_network_vlan_id
         bridge      = var.proxmox_network_bridge
+        mtu         = var.proxmox_network_mtu
         mac_address = lookup(var.worker_mac_addresses, each.key, null)
     }
 
